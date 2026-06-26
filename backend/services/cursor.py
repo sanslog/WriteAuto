@@ -27,7 +27,7 @@ async def get_cursor_info(db:Database, novel_id: str) -> dict:
         detailed_outline = nodes[cursor].get("detailed_outline", "")
 
     # print debug info:
-    print(f"debug:cursor:\noutline:{outline_lines}\ndetailed:{detailed_outline}\ncursor:{cursor}")
+    print(f"debug:cursor:\n\noutline:{outline_lines}\n\ndetailed:{detailed_outline}\n\ncursor:{cursor}")
 
     return {
         "outline": "\n".join(outline_lines),
