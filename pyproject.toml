@@ -1,0 +1,25 @@
+[project]
+name = "writeauto"
+version = "2.0.0"
+description = "AI-assisted novel writing tool"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "langgraph>=1.2.5",
+    "pywebview>=6.2.1",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "openai>=1.55.0",
+    "aiosqlite>=0.20.0",
+    "httpx>=0.28.0",
+    "python-multipart>=0.0.12",
+]
+
+[tool.uv]
+index-url = "https://pypi.tuna.tsinghua.edu.cn/simple/"
+
+[dependency-groups]
+test = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+]
