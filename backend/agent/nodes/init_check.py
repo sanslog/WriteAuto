@@ -1,9 +1,7 @@
-import asyncio
-
 from backend.agent.state import State
 
 
-async def _init_check_impl(state: State) -> dict:
+async def init_check_node(state: State) -> dict:
     from backend.db.database import Database
     from backend.config import DB_PATH
     from backend.services.cursor import get_cursor_info
@@ -45,6 +43,3 @@ async def _init_check_impl(state: State) -> dict:
     finally:
         await db.close()
 
-
-def init_check_node(state: State) -> dict:
-    return asyncio.run(_init_check_impl(state))

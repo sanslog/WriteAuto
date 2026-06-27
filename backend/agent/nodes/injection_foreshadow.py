@@ -1,9 +1,7 @@
-import asyncio
-
 from backend.agent.state import State
 
 
-async def _injection_foreshadow_impl(state: State) -> dict:
+async def injection_foreshadow_node(state: State) -> dict:
     from backend.db.database import Database
     from backend.config import DB_PATH
 
@@ -27,7 +25,3 @@ async def _injection_foreshadow_impl(state: State) -> dict:
         return {"foreshadow": foreshadow_text}
     finally:
         await db.close()
-
-
-def injection_foreshadow_node(state: State) -> dict:
-    return asyncio.run(_injection_foreshadow_impl(state))

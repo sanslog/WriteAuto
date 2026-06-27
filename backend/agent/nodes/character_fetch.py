@@ -1,11 +1,7 @@
-import asyncio
-
 from backend.agent.state import State
-from backend.config import RECENT_CHAPTERS_COUNT, RECENT_CHAPTER_CHAR_LIMIT
-from backend.llm.factory import create_llm_provider
 
 
-async def _character_fetch_impl(state: State) -> dict:
+async def character_fetch_node(state: State) -> dict:
     from backend.db.database import Database
     from backend.config import DB_PATH
     from backend.services.legality import check_legality
@@ -16,25 +12,26 @@ async def _character_fetch_impl(state: State) -> dict:
     db = Database(DB_PATH)
     await db.init()
     try:
+        # 这个功能没有必要，多余且浪费token
         # ── 1. 合法性检查 ──
-        approved = await db.get_chapters_by_status(novel_id, "approved")
-        if approved:
-            recent = approved[-RECENT_CHAPTERS_COUNT:]
-            content_parts = []
-            for ch in recent:
-                text = ch.get("content", "")
-                if len(text) > RECENT_CHAPTER_CHAR_LIMIT:
-                    text = text[:RECENT_CHAPTER_CHAR_LIMIT]
-                content_parts.append(text)
-            combined = "\n\n".join(content_parts)
+        # approved = await db.get_chapters_by_status(novel_id, "approved")
+        # if approved:
+        #     recent = approved[-RECENT_CHAPTERS_COUNT:]
+        #     content_parts = []
+        #     for ch in recent:
+        #         text = ch.get("content", "")
+        #         if len(text) > RECENT_CHAPTER_CHAR_LIMIT:
+        #             text = text[:RECENT_CHAPTER_CHAR_LIMIT]
+        #         content_parts.append(text)
+        #     combined = "\n\n".join(content_parts)
 
-            llm = create_llm_provider()
-            unlawful, reason = await check_legality(llm, combined)
-            if unlawful:
-                return {
-                    "unlawful": True,
-                    "unlaw_reason": reason,
-                }
+        #     llm = create_llm_provider()
+        #     unlawful, reason = await check_legality(llm, combined)
+        #     if unlawful:
+        #         return {
+        #             "unlawful": True,
+        #             "unlaw_reason": reason,
+        #         }
 
         # ── 2. 从细纲(outline)中匹配角色 ──
         # 细纲为空 → 不提供角色信息
@@ -71,6 +68,3 @@ async def _character_fetch_impl(state: State) -> dict:
     finally:
         await db.close()
 
-
-def character_fetch_node(state: State) -> dict:
-    return asyncio.run(_character_fetch_impl(state))

@@ -1,3 +1,4 @@
+import asyncio
 import threading
 import uuid
 from typing import Any
@@ -196,39 +197,42 @@ async def run_generation(gen_id: str, body: GenerationRunRequest):
 
     
 
-    def _run():
+    async def _run_async():
         from backend.agent.graph import continue_writing_graph
-        try:
-            for event in continue_writing_graph.stream(
-                initial_state, config=config, stream_mode="updates"
-            ):
-                # Merge events from stream_mode="updates" ({node: output}) into flat state
-                for _node_name, output in event.items():
-                    if isinstance(output, dict):
-                        session.set_state({**session.state, **output})
-                session.set_step("generating")
+        async for event in continue_writing_graph.astream(
+            initial_state, config=config, stream_mode="updates"
+        ):
+            # Merge events from stream_mode="updates" ({node: output}) into flat state
+            for _node_name, output in event.items():
+                if isinstance(output, dict):
+                    session.set_state({**session.state, **output})
+            session.set_step("generating")
 
-            # After streaming, check where we are
-            current_state = continue_writing_graph.get_state(config)
-            if _detect_interrupt(session, current_state):
-                return
+        # After streaming, check where we are
+        current_state = continue_writing_graph.get_state(config)
+        if _detect_interrupt(session, current_state):
+            return
 
-            if current_state and current_state.values:
-                state_dict = dict(current_state.values)
-                session.set_state(state_dict)
+        if current_state and current_state.values:
+            state_dict = dict(current_state.values)
+            session.set_state(state_dict)
 
-                if state_dict.get("should_end"):
-                    session.set_step("complete")
-                else:
-                    session.set_step("generating")
-            else:
+            if state_dict.get("should_end"):
                 session.set_step("complete")
+            else:
+                session.set_step("generating")
+        else:
+            session.set_step("complete")
 
+    def _run():
+        try:
+            asyncio.run(_run_async())
         except Exception as e:
             error_msg = str(e)
             if "GraphInterrupt" in error_msg or "interrupt" in error_msg.lower():
                 # langgraph < 1.0 fallback: interrupt throws
                 try:
+                    from backend.agent.graph import continue_writing_graph
                     current_state = continue_writing_graph.get_state(config)
                     _detect_interrupt(session, current_state)
                 except Exception:
@@ -259,42 +263,45 @@ async def submit_judgment(gen_id: str, body: JudgeRequest):
     config = {"configurable": {"thread_id": gen_id}}
     judgment = {"action": body.action, "text": body.text}
 
-    def _resume():
+    async def _resume_async():
         from backend.agent.graph import continue_writing_graph
-        try:
-            # Use stream() instead of invoke() for consistency with _run().
-            # stream() yields updates for each node execution after resume.
-            # After it completes, we check get_state() for the final state.
-            for event in continue_writing_graph.stream(
-                Command(resume=judgment), config=config, stream_mode="updates"
-            ):
-                for _node_name, output in event.items():
-                    if isinstance(output, dict):
-                        session.set_state({**session.state, **output})
+        # Use astream() instead of stream() for consistency with _run_async().
+        # astream() yields updates for each node execution after resume.
+        # After it completes, we check get_state() for the final state.
+        async for event in continue_writing_graph.astream(
+            Command(resume=judgment), config=config, stream_mode="updates"
+        ):
+            for _node_name, output in event.items():
+                if isinstance(output, dict):
+                    session.set_state({**session.state, **output})
 
-            # After resume stream completes, read authoritative state from checkpointer
-            current_state = continue_writing_graph.get_state(config)
-            if _detect_interrupt(session, current_state):
-                return
+        # After resume stream completes, read authoritative state from checkpointer
+        current_state = continue_writing_graph.get_state(config)
+        if _detect_interrupt(session, current_state):
+            return
 
-            if current_state and current_state.values:
-                state_dict = dict(current_state.values)
-                session.set_state(state_dict)
+        if current_state and current_state.values:
+            state_dict = dict(current_state.values)
+            session.set_state(state_dict)
 
-                if state_dict.get("should_end"):
-                    session.set_step("complete")
-                elif not current_state.next:
-                    # Graph reached END (no pending nodes) → treat as complete
-                    session.set_step("complete")
-                else:
-                    session.set_step("generating")
-            else:
+            if state_dict.get("should_end"):
                 session.set_step("complete")
+            elif not current_state.next:
+                # Graph reached END (no pending nodes) → treat as complete
+                session.set_step("complete")
+            else:
+                session.set_step("generating")
+        else:
+            session.set_step("complete")
 
+    def _resume():
+        try:
+            asyncio.run(_resume_async())
         except Exception as e:
             error_msg = str(e)
             if "GraphInterrupt" in error_msg or "interrupt" in error_msg.lower():
                 try:
+                    from backend.agent.graph import continue_writing_graph
                     current_state = continue_writing_graph.get_state(config)
                     if not _detect_interrupt(session, current_state):
                         # Graph said it was interrupted but no interrupt in state

@@ -1,9 +1,7 @@
-import asyncio
-
 from backend.agent.state import State
 
 
-async def _injection_context_impl(state: State) -> dict:
+async def injection_context_node(state: State) -> dict:
     from backend.db.database import Database
     from backend.config import DB_PATH
     from backend.services.context import build_context
@@ -19,6 +17,3 @@ async def _injection_context_impl(state: State) -> dict:
     finally:
         await db.close()
 
-
-def injection_context_node(state: State) -> dict:
-    return asyncio.run(_injection_context_impl(state))

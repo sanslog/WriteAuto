@@ -1,4 +1,3 @@
-import asyncio
 import json
 import re
 
@@ -61,7 +60,7 @@ def _split_chapters(text: str) -> list[dict]:
     return result
 
 
-async def _content_generation_impl(state: State) -> dict:
+async def content_generation_node(state: State) -> dict:
     from backend.db.database import Database
     from backend.config import DB_PATH
     from backend.llm.factory import create_llm_provider
@@ -201,5 +200,3 @@ async def _content_generation_impl(state: State) -> dict:
         await db.close()
 
 
-def content_generation_node(state: State) -> dict:
-    return asyncio.run(_content_generation_impl(state))
