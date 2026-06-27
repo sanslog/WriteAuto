@@ -1,14 +1,18 @@
 <script setup>
 import {
   AlertTriangle,
+  CheckCircle,
   Cpu,
   Eye,
   EyeOff,
   Key,
   Link,
+  LoaderCircle,
   Save,
   Settings,
-  Trash2
+  Trash2,
+  Wifi,
+  XCircle
 } from 'lucide-vue-next'
 import { onMounted, ref } from 'vue'
 import { useSettingsStore } from '../stores/settings'
@@ -16,6 +20,20 @@ import { useSettingsStore } from '../stores/settings'
 const settingsStore = useSettingsStore()
 const showApiKey = ref(false)
 const isSaving = ref(false)
+const isPinging = ref(false)
+const pingStatus = ref(null) // null | 'success' | 'error'
+
+// 弹窗相关
+const showErrorModal = ref(false)
+const errorDetails = ref({
+  url: '',
+  method: 'POST',
+  status: '',
+  statusText: '',
+  requestBody: '',
+  responseBody: '',
+  errorMessage: ''
+})
 
 const form = ref({
   llm_api_key: '',
@@ -46,6 +64,86 @@ async function save() {
   }
 }
 
+async function pingLLM() {
+  pingStatus.value = null
+  isPinging.value = true
+
+  if (!form.value.llm_api_key || !form.value.llm_base_url) {
+    pingStatus.value = 'error'
+    isPinging.value = false
+    showErrorModal.value = true
+    errorDetails.value = {
+      ...errorDetails.value,
+      errorMessage: '请先填写 API Key 和 Base URL'
+    }
+    return
+  }
+
+  try {
+    const baseUrl = form.value.llm_base_url.replace(/\/+$/, '')
+    const url = `${baseUrl}/chat/completions`
+    const requestBody = {
+      model: form.value.llm_model || 'deepseek-chat',
+      messages: [{ role: 'user', content: 'Hi' }],
+      max_tokens: 1,  // 最小化消耗
+      temperature: 0
+    }
+
+    errorDetails.value.url = url
+    errorDetails.value.requestBody = JSON.stringify(requestBody, null, 2)
+
+    const [response] = await Promise.all([
+      fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${form.value.llm_api_key}`
+        },
+        body: JSON.stringify(requestBody)
+      }),
+      new Promise(r => setTimeout(r, 1000))
+    ])
+
+    errorDetails.value.status = response.status
+    errorDetails.value.statusText = response.statusText
+
+    // 只要 HTTP 状态码是 2xx 就算成功
+    if (response.ok) {
+      pingStatus.value = 'success'
+    } else {
+      // 失败时获取错误信息用于展示
+      let errorMessage = `HTTP ${response.status}: ${response.statusText}`
+      let responseBody = ''
+      try {
+        const errorData = await response.json()
+        errorMessage = errorData.error?.message || errorMessage
+        responseBody = JSON.stringify(errorData, null, 2)
+      } catch (_) {
+        try {
+          responseBody = await response.text()
+        } catch (_) {
+          responseBody = '无法获取响应内容'
+        }
+      }
+      errorDetails.value.responseBody = responseBody
+      errorDetails.value.errorMessage = errorMessage
+      showErrorModal.value = true
+    }
+
+  } catch (error) {
+    pingStatus.value = 'error'
+    errorDetails.value.errorMessage = error.message || '请求失败'
+    errorDetails.value.responseBody = '无法获取响应内容'
+    showErrorModal.value = true
+  } finally {
+    isPinging.value = false
+  }
+}
+
+function closeErrorModal() {
+  showErrorModal.value = false
+}
+
 async function clearData() {
   if (confirm('确定要清除所有本地数据吗？此操作不可撤销。')) {
     await settingsStore.updateSettings({ clear_data: '1' })
@@ -71,7 +169,7 @@ async function clearData() {
       <div class="card-header">
         <div class="card-header-left">
           <Cpu class="card-icon" :size="20" />
-          <h2>LLM 配置</h2>
+          <h2>LLM 配置(目前仅支持OpenAI)</h2>
         </div>
       </div>
 
@@ -111,12 +209,27 @@ async function clearData() {
           <input v-model="form.llm_model" placeholder="deepseek-chat" class="form-input" />
         </div>
 
-        <!-- 保存按钮 -->
+        <!-- 按钮区域 -->
         <div class="form-footer">
-          <button type="submit" class="save-btn" :disabled="isSaving">
-            <Save :size="18" v-if="!isSaving" />
-            <span>{{ isSaving ? '保存中...' : '保存设置' }}</span>
-          </button>
+          <div class="form-actions">
+            <button type="button" class="ping-btn" :class="{
+              'ping-idle': pingStatus === null,
+              'ping-loading': isPinging,
+              'ping-success': pingStatus === 'success',
+              'ping-error': pingStatus === 'error'
+            }" @click="pingLLM" :disabled="isPinging || isSaving">
+              <Wifi v-if="pingStatus === null && !isPinging" :size="16" />
+              <LoaderCircle v-if="isPinging" :size="16" class="spin" />
+              <CheckCircle v-if="pingStatus === 'success'" :size="16" />
+              <XCircle v-if="pingStatus === 'error'" :size="16" />
+              <span>{{ isPinging ? '测试中' : '测试' }}</span>
+            </button>
+            <button type="submit" class="save-btn" :disabled="isSaving || isPinging">
+              <Save :size="18" v-if="!isSaving" />
+              <LoaderCircle v-if="isSaving" :size="18" class="spin" />
+              <span>{{ isSaving ? '保存中' : '保存设置' }}</span>
+            </button>
+          </div>
         </div>
       </form>
     </div>
@@ -143,6 +256,70 @@ async function clearData() {
           <Trash2 :size="18" />
           清除所有数据
         </button>
+      </div>
+    </div>
+
+    <!-- 错误弹窗 Modal -->
+    <div v-if="showErrorModal" class="modal-overlay" @click.self="closeErrorModal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <div class="modal-header-left">
+            <XCircle class="modal-error-icon" :size="24" />
+            <h3>连接失败</h3>
+          </div>
+          <button class="modal-close" @click="closeErrorModal">×</button>
+        </div>
+
+        <div class="modal-body">
+          <!-- 错误信息 -->
+          <div class="error-message-box">
+            <AlertTriangle :size="16" class="error-message-icon" />
+            <span class="error-message-text">{{ errorDetails.errorMessage || '请求失败' }}</span>
+          </div>
+
+          <!-- 请求详情 -->
+          <div class="detail-section">
+            <div class="detail-row">
+              <span class="detail-label">请求方法</span>
+              <span class="detail-value method-tag">POST</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">请求 URL</span>
+              <span class="detail-value url-value">{{ errorDetails.url }}</span>
+            </div>
+            <div v-if="errorDetails.status" class="detail-row">
+              <span class="detail-label">响应状态</span>
+              <span class="detail-value" :class="{
+                'status-ok': errorDetails.status < 400,
+                'status-error': errorDetails.status >= 400
+              }">
+                {{ errorDetails.status }} {{ errorDetails.statusText }}
+              </span>
+            </div>
+          </div>
+
+          <!-- 请求体 -->
+          <div class="detail-section">
+            <div class="section-header">
+              <span class="section-title">请求体 (Request Body)</span>
+              <button class="copy-btn" @click="copyToClipboard(errorDetails.requestBody)">复制</button>
+            </div>
+            <pre class="code-block">{{ errorDetails.requestBody || '无' }}</pre>
+          </div>
+
+          <!-- 响应体 -->
+          <div class="detail-section" v-if="errorDetails.responseBody">
+            <div class="section-header">
+              <span class="section-title">响应体 (Response Body)</span>
+              <button class="copy-btn" @click="copyToClipboard(errorDetails.responseBody)">复制</button>
+            </div>
+            <pre class="code-block error-response">{{ errorDetails.responseBody || '无' }}</pre>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button class="modal-close-btn" @click="closeErrorModal">关闭</button>
+        </div>
       </div>
     </div>
   </div>
@@ -334,11 +511,84 @@ async function clearData() {
 /* 表单底部 */
 .form-footer {
   display: flex;
-  justify-content: flex-end;
+  flex-direction: column;
+  gap: 12px;
   padding-top: 8px;
   border-top: 1px solid var(--border-color, #f3f4f6);
 }
 
+.form-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+/* 测试按钮 - 基础样式 */
+.ping-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 18px;
+  border: none;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  min-width: 90px;
+  justify-content: center;
+}
+
+/* 测试按钮 - 空闲状态 (蓝色) */
+.ping-idle {
+  background: #3b82f6;
+  color: white;
+}
+
+.ping-idle:hover:not(:disabled) {
+  background: #2563eb;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+/* 测试按钮 - 加载状态 */
+.ping-loading {
+  background: #3b82f6;
+  color: white;
+  cursor: not-allowed;
+  opacity: 0.8;
+}
+
+/* 测试按钮 - 成功状态 (绿色) */
+.ping-success {
+  background: #22c55e;
+  color: white;
+}
+
+.ping-success:hover:not(:disabled) {
+  background: #16a34a;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3);
+}
+
+/* 测试按钮 - 错误状态 (红色) */
+.ping-error {
+  background: #ef4444;
+  color: white;
+}
+
+.ping-error:hover:not(:disabled) {
+  background: #dc2626;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+}
+
+.ping-btn:disabled {
+  cursor: not-allowed;
+}
+
+/* 保存按钮 */
 .save-btn {
   display: flex;
   align-items: center;
@@ -363,6 +613,21 @@ async function clearData() {
 .save-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+/* 旋转动画 */
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* 危险区域 */
@@ -424,6 +689,257 @@ async function clearData() {
   box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
 }
 
+/* ===== Modal 样式 ===== */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+.modal-content {
+  background: var(--bg-card, #ffffff);
+  border-radius: 16px;
+  max-width: 700px;
+  width: 100%;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border-color, #e5e7eb);
+  flex-shrink: 0;
+}
+
+.modal-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.modal-error-icon {
+  color: #ef4444;
+}
+
+.modal-header h3 {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary, #1f2937);
+  margin: 0;
+}
+
+.modal-close {
+  background: transparent;
+  border: none;
+  font-size: 28px;
+  line-height: 1;
+  color: var(--text-secondary, #6b7280);
+  cursor: pointer;
+  padding: 0 4px;
+  transition: color 0.2s;
+}
+
+.modal-close:hover {
+  color: var(--text-primary, #1f2937);
+}
+
+.modal-body {
+  padding: 24px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.error-message-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px 16px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  margin-bottom: 20px;
+}
+
+.error-message-icon {
+  color: #ef4444;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.error-message-text {
+  font-size: 14px;
+  color: #991b1b;
+  font-weight: 500;
+  word-break: break-all;
+}
+
+.detail-section {
+  margin-bottom: 18px;
+}
+
+.detail-section:last-child {
+  margin-bottom: 0;
+}
+
+.detail-row {
+  display: flex;
+  align-items: baseline;
+  padding: 6px 0;
+  gap: 12px;
+  font-size: 14px;
+}
+
+.detail-label {
+  color: var(--text-secondary, #6b7280);
+  font-weight: 500;
+  min-width: 80px;
+  flex-shrink: 0;
+}
+
+.detail-value {
+  color: var(--text-primary, #1f2937);
+  word-break: break-all;
+}
+
+.url-value {
+  font-family: monospace;
+  font-size: 13px;
+  background: var(--bg-input, #f3f4f6);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.method-tag {
+  background: #3b82f6;
+  color: white;
+  padding: 2px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.status-ok {
+  color: #22c55e;
+  font-weight: 600;
+}
+
+.status-error {
+  color: #ef4444;
+  font-weight: 600;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary, #6b7280);
+}
+
+.copy-btn {
+  background: transparent;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 6px;
+  padding: 2px 12px;
+  font-size: 12px;
+  color: var(--text-secondary, #6b7280);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.copy-btn:hover {
+  background: var(--bg-hover, #f3f4f6);
+  border-color: var(--primary-color, #6366f1);
+  color: var(--primary-color, #6366f1);
+}
+
+.code-block {
+  background: #1e1e2e;
+  color: #cdd6f4;
+  padding: 14px 16px;
+  border-radius: 10px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-x: auto;
+  max-height: 200px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+}
+
+.error-response {
+  border-left: 3px solid #ef4444;
+}
+
+.modal-footer {
+  padding: 16px 24px;
+  border-top: 1px solid var(--border-color, #e5e7eb);
+  display: flex;
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
+
+.modal-close-btn {
+  padding: 8px 24px;
+  background: var(--primary-color, #6366f1);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.modal-close-btn:hover {
+  background: var(--primary-hover, #4f46e5);
+}
+
 /* 暗色模式适配 */
 @media (prefers-color-scheme: dark) {
   .settings-card {
@@ -458,5 +974,77 @@ async function clearData() {
   .warning-text {
     color: #f87171;
   }
+
+  .modal-content {
+    background: #1e1e2e;
+    border-color: #313244;
+  }
+
+  .modal-header {
+    border-color: #313244;
+  }
+
+  .modal-header h3 {
+    color: #cdd6f4;
+  }
+
+  .modal-close {
+    color: #a6adc8;
+  }
+
+  .modal-close:hover {
+    color: #cdd6f4;
+  }
+
+  .error-message-box {
+    background: #3b1c1c;
+    border-color: #7f1d1d;
+  }
+
+  .error-message-text {
+    color: #fca5a5;
+  }
+
+  .detail-label {
+    color: #a6adc8;
+  }
+
+  .detail-value {
+    color: #cdd6f4;
+  }
+
+  .url-value {
+    background: #181825;
+  }
+
+  .section-title {
+    color: #a6adc8;
+  }
+
+  .copy-btn {
+    border-color: #45475a;
+    color: #a6adc8;
+  }
+
+  .copy-btn:hover {
+    background: #313244;
+    border-color: #89b4fa;
+    color: #89b4fa;
+  }
+
+  .code-block {
+    background: #11111b;
+    color: #cdd6f4;
+  }
+
+  .modal-footer {
+    border-color: #313244;
+  }
+}
+
+/* 复制提示 */
+.copy-btn.copied {
+  border-color: #22c55e;
+  color: #22c55e;
 }
 </style>
