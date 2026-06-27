@@ -1,13 +1,13 @@
 <script setup>
 import { onMounted, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { useNovelStore } from '../stores/novel'
-import { useChapterStore } from '../stores/chapter'
-import { useGenerationStore } from '../stores/generation'
-import MarkdownEditor from '../components/editor/MarkdownEditor.vue'
 import Loading from '../components/common/Loading.vue'
+import MarkdownEditor from '../components/editor/MarkdownEditor.vue'
 import GenerationPanel from '../components/writing/GenerationPanel.vue'
 import ReviewPanel from '../components/writing/ReviewPanel.vue'
+import { useChapterStore } from '../stores/chapter'
+import { useGenerationStore } from '../stores/generation'
+import { useNovelStore } from '../stores/novel'
 
 const route = useRoute()
 const novelId = route.params.id
@@ -57,7 +57,7 @@ async function handleJudge(judgment) {
         </span>
       </div>
       <div class="toolbar-actions">
-        <button class="btn-primary" @click="openGenerationPanel" :disabled="genStore.loading">
+        <button class="btn-primary" @click="openGenerationPanel" :disabled="genStore.loading" style="color: aqua;">
           AI 续写
         </button>
       </div>
@@ -69,12 +69,9 @@ async function handleJudge(judgment) {
         <div v-if="chapterStore.chapters.length === 0" class="empty-state">
           暂无章节
         </div>
-        <div
-          v-for="ch in chapterStore.chapters"
-          :key="ch.id"
+        <div v-for="ch in chapterStore.chapters" :key="ch.id"
           :class="['chapter-item', { active: chapterStore.currentChapter?.id === ch.id }]"
-          @click="chapterStore.fetchChapter(ch.id)"
-        >
+          @click="chapterStore.fetchChapter(ch.id)">
           <span class="ch-title">{{ ch.title || '未命名' }}</span>
           <span :class="['ch-status', `status-${ch.status}`]">
             {{ ch.status === 'approved' ? '已批准' : ch.status === 'draft' ? '草稿' : ch.status }}
@@ -91,11 +88,7 @@ async function handleJudge(judgment) {
                 <h3>AI 续写 — {{ preparation.next_node_title || '新章节' }}</h3>
                 <button class="modal-close" @click="showGenPanel = false">&times;</button>
               </div>
-              <GenerationPanel
-                :preparation="preparation"
-                :loading="genStore.loading"
-                @start="handleStart"
-              />
+              <GenerationPanel :preparation="preparation" :loading="genStore.loading" @start="handleStart" />
             </div>
           </div>
         </Transition>
@@ -103,11 +96,7 @@ async function handleJudge(judgment) {
         <!-- Review Panel (when waiting for judgment) -->
         <div v-if="genStore.status?.step === 'waiting_input'" class="review-overlay">
           <div class="review-container card">
-            <ReviewPanel
-              :state="genStore.status?.state || {}"
-              :loading="genStore.loading"
-              @judge="handleJudge"
-            />
+            <ReviewPanel :state="genStore.status?.state || {}" :loading="genStore.loading" @judge="handleJudge" />
           </div>
         </div>
 
@@ -116,18 +105,12 @@ async function handleJudge(judgment) {
           <Loading text="AI 正在生成中..." />
         </div>
 
-        <MarkdownEditor
-          v-model="chapterStore.content"
-          :readonly="chapterStore.currentChapter?.status === 'approved'"
-        />
+        <MarkdownEditor v-model="chapterStore.content" :readonly="chapterStore.currentChapter?.status === 'approved'" />
 
         <div v-if="chapterStore.currentChapter" class="editor-footer">
-          <button
-            class="btn-primary"
-            @click="chapterStore.saveChapter(chapterStore.currentChapter.id, {
-              content: chapterStore.content,
-            })"
-          >
+          <button class="btn-primary" @click="chapterStore.saveChapter(chapterStore.currentChapter.id, {
+            content: chapterStore.content,
+          })">
             保存章节
           </button>
         </div>
@@ -142,21 +125,25 @@ async function handleJudge(judgment) {
   flex-direction: column;
   height: 100%;
 }
+
 .editor-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-bottom: 20px;
 }
+
 .novel-info {
   display: flex;
   align-items: baseline;
   gap: 12px;
 }
+
 .novel-info h1 {
   font-size: 20px;
   margin: 0;
 }
+
 .cursor-badge {
   font-size: 13px;
   color: var(--primary);
@@ -164,12 +151,14 @@ async function handleJudge(judgment) {
   padding: 2px 10px;
   border-radius: 10px;
 }
+
 .editor-body {
   display: flex;
   gap: 20px;
   flex: 1;
   min-height: 0;
 }
+
 .chapter-list {
   width: 200px;
   flex-shrink: 0;
@@ -177,10 +166,12 @@ async function handleJudge(judgment) {
   padding-right: 16px;
   overflow-y: auto;
 }
+
 .chapter-list h3 {
   font-size: 14px;
   margin-bottom: 12px;
 }
+
 .chapter-item {
   display: flex;
   align-items: center;
@@ -191,15 +182,31 @@ async function handleJudge(judgment) {
   font-size: 13px;
   margin-bottom: 4px;
 }
-.chapter-item:hover { background: var(--bg-secondary); }
-.chapter-item.active { background: rgba(74, 144, 217, 0.1); }
+
+.chapter-item:hover {
+  background: var(--bg-secondary);
+}
+
+.chapter-item.active {
+  background: rgba(74, 144, 217, 0.1);
+}
+
 .ch-status {
   font-size: 11px;
   padding: 1px 6px;
   border-radius: 8px;
 }
-.status-approved { background: #e6f7e6; color: var(--success); }
-.status-draft { background: #fff3e0; color: var(--warning); }
+
+.status-approved {
+  background: #e6f7e6;
+  color: var(--success);
+}
+
+.status-draft {
+  background: #fff3e0;
+  color: var(--warning);
+}
+
 .editor-main {
   flex: 1;
   display: flex;
@@ -207,31 +214,42 @@ async function handleJudge(judgment) {
   gap: 12px;
   min-width: 0;
 }
+
 .editor-footer {
   display: flex;
   justify-content: flex-end;
 }
-.gen-overlay, .review-overlay {
+
+.gen-overlay,
+.review-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.4);
+  background: rgba(0, 0, 0, 0.4);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 500;
 }
-.gen-container, .review-container {
+
+.gen-container,
+.review-container {
   width: 600px;
   max-height: 80vh;
   overflow-y: auto;
 }
+
 .gen-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-bottom: 16px;
 }
-.gen-header h3 { font-size: 16px; margin: 0; }
+
+.gen-header h3 {
+  font-size: 16px;
+  margin: 0;
+}
+
 .modal-close {
   background: none;
   font-size: 22px;
@@ -239,6 +257,7 @@ async function handleJudge(judgment) {
   padding: 0 4px;
   line-height: 1;
 }
+
 .gen-indicator {
   padding: 16px;
 }

@@ -55,23 +55,6 @@ def build_generation_prompt(
 
     return system, "\n\n".join(user_parts)
 
-
-def build_character_extraction_prompt(content: str, existing_characters: str) -> str:
-    system = "你是一位文学角色分析专家。请从给定的小说内容中提取角色信息。"
-    user = f"""已有角色列表：
-{existing_characters}
-
-最新内容：
-{content}
-
-请分析以上内容，识别所有出现的角色（包括新角色）：
-1. 对于已存在的角色，补充最新的状态描述
-2. 对于新角色，提取名字和角色描述
-3. 返回 JSON 格式：{{"characters": [{{"name": "", "description": "", "role": "", "is_new": true/false}}]}}
-"""
-    return system, user
-
-
 def build_legality_check_prompt(content: str) -> str:
     system = "你是一位内容审核专家。请判断给定的小说内容是否包含违规内容。"
     user = f"""请检查以下内容是否包含：

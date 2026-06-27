@@ -71,6 +71,47 @@ class AgentSession:
             self.error = "用户取消生成"
 
 
+def _detect_interrupt(session, state_snapshot) -> bool:
+        """Check if the graph is paused at content_judge due to interrupt.
+
+        langgraph v1.2.5: after interrupt(), .next is empty (graph is waiting),
+        so we must check .tasks for pending interrupts instead.
+        """
+        if not state_snapshot or not state_snapshot.values:
+            return False
+
+        state_dict = dict(state_snapshot.values)
+
+        # Method 1: check tasks (langgraph v1.2.5+ — reliable)
+        if state_snapshot.tasks:
+            for task in state_snapshot.tasks:
+                if task.name == "content_judge" and task.interrupts:
+                    session.set_state(state_dict)
+                    # Use the interrupt payload if available, else build from state
+                    interrupt_val = task.interrupts[0].value if task.interrupts[0].value else {}
+                    session.set_interrupt({
+                        "type": "judgment",
+                        "generated_text": interrupt_val.get("generated_text", state_dict.get("generated_text", "")),
+                        "chapter_titles": interrupt_val.get("chapter_titles", state_dict.get("chapter_titles", [])),
+                        "character_states_json": interrupt_val.get("character_states_json", state_dict.get("character_states_json", "")),
+                        "modification_count": interrupt_val.get("modification_count", state_dict.get("modification_count", 0)),
+                    })
+                    return True
+
+        # Method 2: check .next (langgraph < 1.0 / older v1 compat)
+        if state_snapshot.next and "content_judge" in state_snapshot.next:
+            session.set_state(state_dict)
+            session.set_interrupt({
+                "type": "judgment",
+                "generated_text": state_dict.get("generated_text", ""),
+                "chapter_titles": state_dict.get("chapter_titles", []),
+                "character_states_json": state_dict.get("character_states_json", ""),
+                "modification_count": state_dict.get("modification_count", 0),
+            })
+            return True
+
+        return False
+
 @router.post("/novels/{novel_id}/generate")
 async def prepare_generation(novel_id: str):
     from backend.db.database import Database
@@ -153,46 +194,7 @@ async def run_generation(gen_id: str, body: GenerationRunRequest):
         "_saved_chapters": [],
     }
 
-    def _detect_interrupt(session, state_snapshot) -> bool:
-        """Check if the graph is paused at content_judge due to interrupt.
-
-        langgraph v1.2.5: after interrupt(), .next is empty (graph is waiting),
-        so we must check .tasks for pending interrupts instead.
-        """
-        if not state_snapshot or not state_snapshot.values:
-            return False
-
-        state_dict = dict(state_snapshot.values)
-
-        # Method 1: check tasks (langgraph v1.2.5+ — reliable)
-        if state_snapshot.tasks:
-            for task in state_snapshot.tasks:
-                if task.name == "content_judge" and task.interrupts:
-                    session.set_state(state_dict)
-                    # Use the interrupt payload if available, else build from state
-                    interrupt_val = task.interrupts[0].value if task.interrupts[0].value else {}
-                    session.set_interrupt({
-                        "type": "judgment",
-                        "generated_text": interrupt_val.get("generated_text", state_dict.get("generated_text", "")),
-                        "chapter_titles": interrupt_val.get("chapter_titles", state_dict.get("chapter_titles", [])),
-                        "character_states_json": interrupt_val.get("character_states_json", state_dict.get("character_states_json", "")),
-                        "modification_count": interrupt_val.get("modification_count", state_dict.get("modification_count", 0)),
-                    })
-                    return True
-
-        # Method 2: check .next (langgraph < 1.0 / older v1 compat)
-        if state_snapshot.next and "content_judge" in state_snapshot.next:
-            session.set_state(state_dict)
-            session.set_interrupt({
-                "type": "judgment",
-                "generated_text": state_dict.get("generated_text", ""),
-                "chapter_titles": state_dict.get("chapter_titles", []),
-                "character_states_json": state_dict.get("character_states_json", ""),
-                "modification_count": state_dict.get("modification_count", 0),
-            })
-            return True
-
-        return False
+    
 
     def _run():
         from backend.agent.graph import continue_writing_graph

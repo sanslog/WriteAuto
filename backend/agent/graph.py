@@ -1,5 +1,6 @@
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph, START, END
+from langgraph.graph.state import CompiledStateGraph
 
 from backend.agent.state import State
 from backend.agent.nodes.init_check import init_check_node
@@ -26,7 +27,7 @@ def _route_after_content_judge(state: State) -> str:
 checkpointer = MemorySaver()
 
 
-def build_graph() -> StateGraph:
+def build_graph() -> CompiledStateGraph:
     builder = StateGraph(State)
 
     builder.add_node("init_check", init_check_node)
@@ -61,4 +62,4 @@ def build_graph() -> StateGraph:
     return builder.compile(checkpointer=checkpointer)
 
 
-continue_writing_graph = build_graph()
+continue_writing_graph : CompiledStateGraph= build_graph()

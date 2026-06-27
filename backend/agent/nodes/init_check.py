@@ -1,8 +1,6 @@
 import asyncio
-import json
 
 from backend.agent.state import State
-from backend.config import MAX_MODIFICATION_COUNT
 
 
 async def _init_check_impl(state: State) -> dict:
