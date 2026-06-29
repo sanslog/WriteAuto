@@ -32,6 +32,7 @@ def make_state(**overrides):
         "novel_id": "test-novel-1",
         "generation_id": "test-gen-1",
         "_saved_chapters": [],
+        "_cancelled": False,
     }
     defaults.update(overrides)
     return defaults

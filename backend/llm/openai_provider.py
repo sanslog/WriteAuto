@@ -34,6 +34,21 @@ class OpenAIProvider(LLMProvider):
         )
         return resp.choices[0].message.content or ""
 
+    async def chat_stream(self, messages: list[dict], temperature: float = 0.8,
+                          max_tokens: int | None = None):
+        stream = await self.client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens if max_tokens is not None else self.max_tokens,
+            stream=True,
+        )
+        async for chunk in stream:
+            delta = chunk.choices[0].delta if chunk.choices else None
+            content = delta.content if delta else ""
+            if content:
+                yield content
+
     async def chat_json(self, messages: list[dict], temperature: float = 0.3,
                         max_tokens: int | None = None) -> dict:
         text = await self.chat(

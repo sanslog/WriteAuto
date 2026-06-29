@@ -48,3 +48,4 @@ class State(TypedDict):
 
     # ── Internal (not exposed to frontend) ──
     _saved_chapters: list[dict]
+    _cancelled: bool

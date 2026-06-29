@@ -15,6 +15,7 @@ import {
   XCircle
 } from 'lucide-vue-next'
 import { onMounted, ref } from 'vue'
+import client from '../api/client'
 import { useSettingsStore } from '../stores/settings'
 
 const settingsStore = useSettingsStore()
@@ -38,7 +39,7 @@ const errorDetails = ref({
 const form = ref({
   llm_api_key: '',
   llm_base_url: 'https://api.deepseek.com',
-  llm_model: 'deepseek-v4-flash',
+  llm_model: 'deepseek-chat', // 修正：使用正确的模型名称
 })
 
 onMounted(async () => {
@@ -47,7 +48,7 @@ onMounted(async () => {
     form.value = {
       llm_api_key: settingsStore.settings.llm_api_key || '',
       llm_base_url: settingsStore.settings.llm_base_url || 'https://api.deepseek.com',
-      llm_model: settingsStore.settings.llm_model || 'deepseek-v4-flash',
+      llm_model: settingsStore.settings.llm_model || 'deepseek-chat',
     }
   }
 })
@@ -64,77 +65,99 @@ async function save() {
   }
 }
 
+// 复制到剪贴板的辅助函数
+async function copyToClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(text)
+    // 可以添加一个简单的提示
+  } catch (err) {
+    console.error('复制失败:', err)
+  }
+}
+
 async function pingLLM() {
   pingStatus.value = null
   isPinging.value = true
+  showErrorModal.value = false
 
-  if (!form.value.llm_api_key || !form.value.llm_base_url) {
+  // 验证必填字段
+  if (!form.value.llm_api_key || !form.value.llm_base_url || !form.value.llm_model) {
     pingStatus.value = 'error'
     isPinging.value = false
-    showErrorModal.value = true
     errorDetails.value = {
       ...errorDetails.value,
-      errorMessage: '请先填写 API Key 和 Base URL'
+      errorMessage: '请先填写 API Key、Base URL 和 Model'
     }
+    showErrorModal.value = true
     return
   }
 
   try {
-    const baseUrl = form.value.llm_base_url.replace(/\/+$/, '')
-    const url = `${baseUrl}/chat/completions`
-    const requestBody = {
-      model: form.value.llm_model || 'deepseek-chat',
-      messages: [{ role: 'user', content: 'Hi' }],
-      max_tokens: 1,  // 最小化消耗
-      temperature: 0
-    }
+    // 发送 ping 请求
+    const response = await client.post('/pingOpenAI', {
+      api_key: form.value.llm_api_key,
+      baseurl: form.value.llm_base_url,
+      model_name: form.value.llm_model
+    })
 
-    errorDetails.value.url = url
-    errorDetails.value.requestBody = JSON.stringify(requestBody, null, 2)
-
-    const [response] = await Promise.all([
-      fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${form.value.llm_api_key}`
-        },
-        body: JSON.stringify(requestBody)
-      }),
-      new Promise(r => setTimeout(r, 1000))
-    ])
-
-    errorDetails.value.status = response.status
-    errorDetails.value.statusText = response.statusText
-
-    // 只要 HTTP 状态码是 2xx 就算成功
-    if (response.ok) {
+    // 检查响应状态
+    if (response.status === 200 && response.data) {
+      // 成功
       pingStatus.value = 'success'
-    } else {
-      // 失败时获取错误信息用于展示
-      let errorMessage = `HTTP ${response.status}: ${response.statusText}`
-      let responseBody = ''
-      try {
-        const errorData = await response.json()
-        errorMessage = errorData.error?.message || errorMessage
-        responseBody = JSON.stringify(errorData, null, 2)
-      } catch (_) {
-        try {
-          responseBody = await response.text()
-        } catch (_) {
-          responseBody = '无法获取响应内容'
-        }
+
+      // 可选：显示成功提示
+      // 你可以在这里添加一个成功消息的 toast 或提示
+      console.log('Ping 成功:', response.data)
+
+      // 如果有返回消息，可以记录
+      if (response.data.message) {
+        // 可以显示成功信息
+        console.log('连接成功:', response.data.message)
       }
-      errorDetails.value.responseBody = responseBody
-      errorDetails.value.errorMessage = errorMessage
+    } else {
+      // 状态码不是 200
+      pingStatus.value = 'error'
+
+      // 构建错误详情
+      errorDetails.value = {
+        url: '/pingOpenAI',
+        method: 'POST',
+        status: response.status || '未知',
+        statusText: response.statusText || '请求失败',
+        requestBody: JSON.stringify({
+          api_key: '===已隐藏===',
+          baseurl: form.value.llm_base_url,
+          model_name: form.value.llm_model
+        }, null, 2),
+        responseBody: JSON.stringify(response.data || {}, null, 2),
+        errorMessage: response.data?.message || response.data?.error || `请求失败 (HTTP ${response.status})`
+      }
       showErrorModal.value = true
     }
-
   } catch (error) {
+    // 网络错误或其他异常
     pingStatus.value = 'error'
-    errorDetails.value.errorMessage = error.message || '请求失败'
-    errorDetails.value.responseBody = '无法获取响应内容'
+
+    // 构建错误详情
+    errorDetails.value = {
+      url: '/pingOpenAI',
+      method: 'POST',
+      status: error.response?.status || '网络错误',
+      statusText: error.response?.statusText || error.message || '未知错误',
+      requestBody: JSON.stringify({
+        api_key: '===已隐藏===',
+        baseurl: form.value.llm_base_url,
+        model_name: form.value.llm_model
+      }, null, 2),
+      responseBody: error.response?.data ? JSON.stringify(error.response.data, null, 2) : error.message || '无响应数据',
+      errorMessage: error.response?.data?.message ||
+        error.response?.data?.error ||
+        error.message ||
+        '网络请求失败，请检查网络连接'
+    }
     showErrorModal.value = true
+
+    console.error('Ping 失败:', error)
   } finally {
     isPinging.value = false
   }
@@ -152,6 +175,7 @@ async function clearData() {
 </script>
 
 <template>
+  <!-- 模板部分保持不变 -->
   <div class="settings-view">
     <!-- 页面头部 -->
     <div class="page-header">
@@ -169,7 +193,7 @@ async function clearData() {
       <div class="card-header">
         <div class="card-header-left">
           <Cpu class="card-icon" :size="20" />
-          <h2>LLM 配置(目前仅支持OpenAI)</h2>
+          <h2>LLM 配置</h2>
         </div>
       </div>
 
@@ -197,7 +221,7 @@ async function clearData() {
             <Link :size="16" class="label-icon" />
             Base URL
           </label>
-          <input v-model="form.llm_base_url" type="url" placeholder="https://api.deepseek.com/v1" class="form-input" />
+          <input v-model="form.llm_base_url" type="url" placeholder="https://api.deepseek.com" class="form-input" />
         </div>
 
         <!-- Model 输入框 -->
@@ -222,7 +246,7 @@ async function clearData() {
               <LoaderCircle v-if="isPinging" :size="16" class="spin" />
               <CheckCircle v-if="pingStatus === 'success'" :size="16" />
               <XCircle v-if="pingStatus === 'error'" :size="16" />
-              <span>{{ isPinging ? '测试中' : '测试' }}</span>
+              <span>{{ isPinging ? '测试中' : '测试连接' }}</span>
             </button>
             <button type="submit" class="save-btn" :disabled="isSaving || isPinging">
               <Save :size="18" v-if="!isSaving" />
@@ -330,6 +354,12 @@ async function clearData() {
   max-width: 680px;
   margin: 0 auto;
   padding: 24px 20px;
+  overflow-y: auto;
+
+  scrollbar-width: none;
+  /* Firefox */
+  -ms-overflow-style: none;
+  /* IE/Edge */
 }
 
 /* 页面头部 */

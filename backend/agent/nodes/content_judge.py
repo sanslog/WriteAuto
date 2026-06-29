@@ -94,6 +94,9 @@ async def _mark_as_discarded(state: State):
 
 
 async def content_judge_node(state: State) -> dict:
+    if state.get("_cancelled"):
+        return {"should_end": True, "enter_loop": False}
+
     judgment = interrupt({
         "type": "judgment",
         "generated_text": state["generated_text"],

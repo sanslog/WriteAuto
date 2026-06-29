@@ -1,14 +1,15 @@
 import { defineStore } from 'pinia'
 import { generationAPI } from '../api/generation'
+import { connectSSE } from '../api/sse'
 
 export const useGenerationStore = defineStore('generation', {
   state: () => ({
     sessions: {},
     activeGen: null,
-    pollTimer: null,
-    pollTimeoutMs: 300000, // 5 min max polling before giving up
-    pollStartTime: null,
-    status: null, // { step, state, error }
+    /** AbortController for the active SSE connection */
+    abortController: null,
+    /** Current generation status — mirrors the latest SSE event */
+    status: null, // { step, state: {...}, error, generatedText }
     loading: false,
     error: null,
   }),
@@ -16,6 +17,9 @@ export const useGenerationStore = defineStore('generation', {
     clearError() {
       this.error = null
     },
+
+    // ── Prepare ──
+
     async prepare(novelId) {
       this.loading = true
       this.clearError()
@@ -34,96 +38,144 @@ export const useGenerationStore = defineStore('generation', {
         this.loading = false
       }
     },
-    async run(genId, data) {
+
+    // ── SSE-based run ──
+
+    async runSSE(genId, data) {
       this.loading = true
       this.clearError()
+      this.abortController = new AbortController()
+
+      this.status = { step: 'generating', state: {}, error: null, generatedText: '' }
+
       try {
-        const res = await generationAPI.run(genId, data)
-        if (res.success) {
-          this.startPolling(genId)
-        } else {
-          this.error = res.error || '生成启动失败'
-        }
-        return res
+        const terminal = await connectSSE(
+          `/api/generations/${genId}/run`,
+          data,
+          this.abortController.signal,
+          (evt) => this._handleSSEEvent(evt),
+        )
+        this._handleTerminalEvent(terminal)
       } catch (e) {
-        this.error = e.message || '生成启动失败'
-        return { success: false, error: this.error }
+        if (e.name === 'AbortError') {
+          this._setFailed('用户取消生成')
+        } else {
+          this.error = e.message || '生成请求失败'
+          this._setFailed(this.error)
+        }
       } finally {
         this.loading = false
+        this.abortController = null
       }
     },
-    async pollStatus(genId) {
-      try {
-        const res = await generationAPI.status(genId)
-        if (res.success) {
-          this.status = { step: res.step, state: res.state, error: res.error }
-          if (res.step === 'complete' || res.step === 'failed') {
-            this.stopPolling()
-          }
-        } else {
-          this.error = res.error || '状态查询失败'
-          this.stopPolling()
-        }
-        return res
-      } catch (e) {
-        this.error = e.message || '状态查询失败'
-        this.stopPolling()
-        return null
-      }
-    },
-    async submitJudge(genId, data) {
+
+    /**
+     * Submit judgment (approve / modify) via SSE streaming.
+     * On approve → stream ends with complete.
+     * On modify → LLM generates again, tokens stream, then judgment again.
+     */
+    async judgeSSE(genId, judgment) {
+      this.loading = true
       this.clearError()
+      this.abortController = new AbortController()
+
+      this.status = { step: 'generating', state: {}, error: null, generatedText: '' }
+
       try {
-        const res = await generationAPI.judge(genId, data)
-        if (res.success) {
-          this.pollStartTime = Date.now() // 用户提交判定后重新计时，给后续生成完整超时时间
-          this.startPolling(genId)
-        } else {
-          this.error = res.error || '提交判定失败'
-        }
-        return res
+        const terminal = await connectSSE(
+          `/api/generations/${genId}/judge`,
+          judgment,
+          this.abortController.signal,
+          (evt) => this._handleSSEEvent(evt),
+        )
+        this._handleTerminalEvent(terminal)
       } catch (e) {
-        this.error = e.message || '提交判定失败'
-        return { success: false, error: this.error }
+        if (e.name === 'AbortError') {
+          this._setFailed('用户取消生成')
+        } else {
+          this.error = e.message || '提交判定失败'
+          this._setFailed(this.error)
+        }
+      } finally {
+        this.loading = false
+        this.abortController = null
       }
     },
+
+    // ── Cancel ──
+
     async cancelGeneration(genId) {
-      this.clearError()
+      // Abort the SSE connection first so the backend gets a close signal
+      if (this.abortController) {
+        this.abortController.abort()
+      }
       try {
         await generationAPI.cancel(genId)
       } catch (e) {
         // Silently ignore cancel errors
-      } finally {
-        this.stopPolling()
-        this.status = { step: 'failed', state: {}, error: '用户取消生成' }
+      }
+      this._setFailed('用户取消生成')
+    },
+
+    // ── Internal helpers ──
+
+    _setFailed(error) {
+      this.status = {
+        step: 'failed',
+        state: {},
+        error,
+        generatedText: this.status?.generatedText || '',
       }
     },
-    startPolling(genId) {
-      this.stopPolling()
-      this.pollStartTime = Date.now()
-      this.pollTimer = setInterval(() => {
-        // 等待用户审核时不触发超时 — 用户可以无限时审阅
-        if (this.status?.step === 'waiting_input') {
-          this.pollStartTime = Date.now() // 重置计时，让后续生成有完整超时时间
-          this.pollStatus(genId)
-          return
-        }
-        // Frontend-side timeout: abort if generation takes too long
-        if (this.pollStartTime && Date.now() - this.pollStartTime > this.pollTimeoutMs) {
-          this.stopPolling()
-          this.error = '生成超时，请重试'
-          this.status = { step: 'failed', state: {}, error: '生成超时' }
-          return
-        }
-        this.pollStatus(genId)
-      }, 2000)
-    },
-    stopPolling() {
-      if (this.pollTimer) {
-        clearInterval(this.pollTimer)
-        this.pollTimer = null
+
+    _handleSSEEvent(evt) {
+      switch (evt.event) {
+        case 'generation_start':
+          this.status = { ...this.status, step: 'generating', generatedText: '' }
+          break
+
+        case 'token':
+          this.status = {
+            ...this.status,
+            step: 'generating',
+            generatedText: (this.status?.generatedText || '') + (evt.data?.text || ''),
+          }
+          break
+
+        case 'judgment':
+          this.status = {
+            step: 'waiting_input',
+            state: evt.data || {},
+            error: null,
+            generatedText: (evt.data?.generated_text || this.status?.generatedText || ''),
+          }
+          break
+
+        case 'error':
+          this.error = evt.data?.error || '生成出错'
+          this.status = { step: 'failed', state: {}, error: this.error, generatedText: '' }
+          break
       }
-      this.pollStartTime = null
+    },
+
+    _handleTerminalEvent(eventType) {
+      // Don't overwrite waiting_input — judgment panel is active
+      if (this.status?.step === 'waiting_input') return
+      // Don't overwrite failed
+      if (this.status?.step === 'failed') return
+
+      switch (eventType) {
+        case 'complete':
+          this.status = { step: 'complete', state: {}, error: null, generatedText: this.status?.generatedText || '' }
+          break
+        case 'cancelled':
+          this._setFailed('用户取消生成')
+          break
+        case 'error':
+          this.error = this.status?.error || '生成出错'
+          this.status = { step: 'failed', state: {}, error: this.error, generatedText: '' }
+          break
+      }
     },
   },
 })

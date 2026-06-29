@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 from backend.api.crud import router as crud_router
+from backend.api.common import router as common
 from backend.api.generation import router as generation_router
 from backend.config import load_llm_config
 
@@ -32,6 +33,7 @@ def create_app() -> FastAPI:
 
     # API routes registered first so they take priority over SPA fallback
     app.include_router(crud_router)
+    app.include_router(common)
     app.include_router(generation_router)
 
     @app.get("/api/health")

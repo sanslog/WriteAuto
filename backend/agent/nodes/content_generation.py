@@ -1,8 +1,11 @@
 import json
 import re
+import uuid
+
+from langgraph.types import interrupt
 
 from backend.agent.state import State
-from backend.config import MIN_CHAPTER_CHARS, SPLIT_THRESHOLD_CHARS, LLM_GENERATION_MAX_TOKENS
+from backend.config import SPLIT_THRESHOLD_CHARS
 
 
 def _count_chinese(text: str) -> int:
@@ -63,11 +66,14 @@ def _split_chapters(text: str) -> list[dict]:
 async def content_generation_node(state: State) -> dict:
     from backend.db.database import Database
     from backend.config import DB_PATH
-    from backend.llm.factory import create_llm_provider
     from backend.llm.prompts import build_generation_prompt
     from backend.services.style_extractor import extract_character_states
     from backend.storage.file_manager import FileManager
     from backend.storage.markdown import write_markdown
+
+    # ── Quick exit on cancel ──
+    if state.get("_cancelled"):
+        return {"should_end": True}
 
     novel_id = state["novel_id"]
     generation_id = state["generation_id"]
@@ -86,28 +92,22 @@ async def content_generation_node(state: State) -> dict:
         enter_loop=state.get("enter_loop", False),
     )
 
-    llm = create_llm_provider()
+    # ── Pause: hand prompt to API layer for streaming LLM call ──
+    resume = interrupt({
+        "type": "generation_request",
+        "system": system,
+        "user": user,
+    })
+    # On resume, interrupt() returns the value passed via Command(resume=...).
+    resume_dict = resume if isinstance(resume, dict) else {}
 
-    generated_text = await llm.chat(
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
-        temperature=0.8,
-        max_tokens=LLM_GENERATION_MAX_TOKENS,
-    )
+    # Check cancel signal
+    if resume_dict.get("cancelled") or resume_dict.get("cancel"):
+        return {"should_end": True, "_cancelled": True}
 
-    # Word count check — retry once if too short
-    if _count_chinese(generated_text) < MIN_CHAPTER_CHARS:
-        retry_user = user + "\n\n【注意】刚才生成的字数不足，请扩展内容，保证不少于2000字。"
-        generated_text = await llm.chat(
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": retry_user},
-            ],
-            temperature=0.8,
-            max_tokens=LLM_GENERATION_MAX_TOKENS,
-        )
+    generated_text = resume_dict.get("generated_text", "")
+    if not generated_text:
+        generated_text = state.get("generated_text", "")
 
     # Split into chapters
     chapters_data = _split_chapters(generated_text)
@@ -120,6 +120,8 @@ async def content_generation_node(state: State) -> dict:
         characters = await db.get_characters(novel_id)
 
         # Extract character states
+        from backend.llm.factory import create_llm_provider
+        llm = create_llm_provider()
         states = await extract_character_states(llm, generated_text, characters)
         character_states_json = json.dumps(states, ensure_ascii=False)
 
@@ -141,7 +143,6 @@ async def content_generation_node(state: State) -> dict:
                         "generation_id": generation_id,
                     })
                 else:
-                    import uuid
                     ch_id = str(uuid.uuid4())
                     path = FileManager.chapter_path(novel_id, ch_id)
                     write_markdown(path, ch_data["content"])
@@ -168,7 +169,6 @@ async def content_generation_node(state: State) -> dict:
                 await db.delete_chapter(ch["id"])
 
             for i, ch_data in enumerate(chapters_data):
-                import uuid
                 ch_id = str(uuid.uuid4())
                 word_count = _count_chinese(ch_data["content"])
                 path = FileManager.chapter_path(novel_id, ch_id)
@@ -198,5 +198,3 @@ async def content_generation_node(state: State) -> dict:
         }
     finally:
         await db.close()
-
-

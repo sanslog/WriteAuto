@@ -24,7 +24,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
-  genStore.stopPolling()
+  genStore.abortController?.abort()
 })
 
 async function openGenerationPanel() {
@@ -36,14 +36,17 @@ async function openGenerationPanel() {
 }
 
 async function handleStart(config) {
-  const res = await genStore.run(preparation.value.generation_id, config)
-  if (res?.success) {
-    showGenPanel.value = false
-  }
+  await genStore.runSSE(preparation.value.generation_id, config)
+  showGenPanel.value = false
 }
 
 async function handleJudge(judgment) {
-  await genStore.submitJudge(genStore.activeGen?.generation_id, judgment)
+  await genStore.judgeSSE(genStore.activeGen?.generation_id, judgment)
+}
+
+function handleCancel() {
+  const genId = genStore.activeGen?.generation_id
+  if (genId) genStore.cancelGeneration(genId)
 }
 </script>
 
@@ -100,9 +103,20 @@ async function handleJudge(judgment) {
           </div>
         </div>
 
-        <!-- Generating indicator -->
-        <div v-if="genStore.status?.step === 'generating'" class="gen-indicator">
-          <Loading text="AI 正在生成中..." />
+        <!-- Generating overlay (streaming mode) -->
+        <div v-if="genStore.status?.step === 'generating'" class="gen-overlay">
+          <div class="gen-stream-card card">
+            <div class="gen-stream-header">
+              <span class="gen-stream-title">AI 正在生成中...</span>
+              <button class="btn-ghost btn-sm" @click="handleCancel">取消</button>
+            </div>
+            <div v-if="genStore.status?.generatedText" class="gen-stream-text">
+              {{ genStore.status.generatedText }}
+            </div>
+            <div v-else class="gen-stream-placeholder">
+              <Loading text="AI 思考中..." />
+            </div>
+          </div>
         </div>
 
         <MarkdownEditor v-model="chapterStore.content" :readonly="chapterStore.currentChapter?.status === 'approved'" />
@@ -260,5 +274,58 @@ async function handleJudge(judgment) {
 
 .gen-indicator {
   padding: 16px;
+}
+
+/* ── Streaming overlay ── */
+.gen-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 500;
+}
+
+.gen-stream-card {
+  padding: var(--space-xl);
+  min-width: 360px;
+  max-width: 600px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.gen-stream-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-md);
+  flex-shrink: 0;
+}
+
+.gen-stream-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--primary);
+}
+
+.gen-stream-text {
+  text-align: left;
+  font-family: 'Noto Serif SC', 'Source Han Serif SC', 'SimSun', serif;
+  font-size: 14px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+  overflow-y: auto;
+  max-height: 60vh;
+  padding: var(--space-md);
+  background: var(--bg-secondary);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+
+.gen-stream-placeholder {
+  padding: var(--space-lg) 0;
 }
 </style>

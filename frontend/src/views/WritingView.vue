@@ -95,7 +95,7 @@ watch(() => route.params.id, async (newId) => {
 })
 
 onUnmounted(() => {
-  genStore.stopPolling()
+  genStore.abortController?.abort()
 })
 
 // --- Chapter CRUD ---
@@ -187,13 +187,7 @@ async function openGenerationPanel() {
 
 async function handleStart(config) {
   try {
-    const res = await genStore.run(preparation.value.generation_id, config)
-    if (res?.success) {
-      showSlidePanel.value = false
-      showGenPanel.value = false
-    } else {
-      showNotification(res?.error || '启动生成失败', 'error', 5000)
-    }
+    await genStore.runSSE(preparation.value.generation_id, config)
   } catch (e) {
     showNotification('启动生成失败: ' + e.message, 'error', 5000)
   }
@@ -205,7 +199,7 @@ function handleJudge(judgment) {
     showNotification('没有活跃的生成会话', 'error', 5000)
     return
   }
-  genStore.submitJudge(genId, judgment)
+  genStore.judgeSSE(genId, judgment)
 }
 
 function handleCancel() {
@@ -222,7 +216,8 @@ function handleCancel() {
 watch(() => genStore.status?.step, async (step) => {
   showReviewPanel.value = step === 'waiting_input'
   if (step === 'waiting_input') {
-    genStore.loading = false // 等待用户审核时解除 loading 状态，让审核面板可交互
+    // Judge buttons must be interactive immediately
+    genStore.loading = false
   }
   if (step === 'complete' || step === 'failed') {
     showReviewPanel.value = false
@@ -399,14 +394,21 @@ function toggleFocusMode() {
       />
     </Modal>
 
-    <!-- Generating indicator -->
+    <!-- Generating overlay (streaming mode) -->
     <div v-if="genStore.status?.step === 'generating'" class="gen-overlay">
       <div class="gen-card card">
-        <Loading text="AI 正在生成中..." />
-        <p class="gen-hint">生成可能需要1-2分钟，请耐心等待</p>
-        <button class="btn-ghost btn-sm gen-cancel-btn" @click="handleCancel">
-          取消生成
-        </button>
+        <div class="gen-stream-header">
+          <span class="gen-stream-title">AI 正在生成...</span>
+          <button class="btn-ghost btn-sm gen-cancel-btn" @click="handleCancel">
+            取消生成
+          </button>
+        </div>
+        <div v-if="genStore.status?.generatedText" class="gen-stream-text">
+          {{ genStore.status.generatedText }}
+        </div>
+        <div v-else class="gen-stream-placeholder">
+          <Loading text="AI 思考中..." />
+        </div>
       </div>
     </div>
 
@@ -758,7 +760,43 @@ function toggleFocusMode() {
 
 .gen-card {
   padding: var(--space-xl);
-  text-align: center;
+  min-width: 360px;
+  max-width: 600px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.gen-stream-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-md);
+  flex-shrink: 0;
+}
+
+.gen-stream-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--primary);
+}
+
+.gen-stream-text {
+  text-align: left;
+  font-family: 'Noto Serif SC', 'Source Han Serif SC', 'SimSun', serif;
+  font-size: 14px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+  overflow-y: auto;
+  max-height: 60vh;
+  padding: var(--space-md);
+  background: var(--bg-secondary);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+
+.gen-stream-placeholder {
+  padding: var(--space-lg) 0;
 }
 
 .gen-hint {
