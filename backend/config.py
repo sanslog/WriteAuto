@@ -4,7 +4,7 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# True = 直接运行 (python main.py)，False = PyInstaller 打包后运行 (.exe)
+# frozen是pyinstaller打包后会自动生成的属性，如果处于非打包状态将会直接启动项目
 RUN_DIRECT = not getattr(sys, "frozen", False)
 
 def _default_data_dir() -> Path:
