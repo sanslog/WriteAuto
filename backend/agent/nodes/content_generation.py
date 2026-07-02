@@ -69,7 +69,6 @@ async def content_generation_node(state: State) -> dict:
     from backend.llm.prompts import build_generation_prompt
     from backend.services.style_extractor import extract_character_states
     from backend.storage.file_manager import FileManager
-    from backend.storage.markdown import write_markdown
 
     # ── Quick exit on cancel ──
     if state.get("_cancelled"):
@@ -134,8 +133,6 @@ async def content_generation_node(state: State) -> dict:
                 word_count = _count_chinese(ch_data["content"])
                 if i < len(saved_chapters):
                     existing = saved_chapters[i]
-                    path = FileManager.chapter_path(novel_id, existing["id"])
-                    write_markdown(path, ch_data["content"])
                     await db.update_chapter(existing["id"], {
                         "title": ch_data["title"],
                         "content": ch_data["content"],
@@ -144,8 +141,6 @@ async def content_generation_node(state: State) -> dict:
                     })
                 else:
                     ch_id = str(uuid.uuid4())
-                    path = FileManager.chapter_path(novel_id, ch_id)
-                    write_markdown(path, ch_data["content"])
                     await db.create_chapter({
                         "id": ch_id,
                         "novel_id": novel_id,
@@ -172,7 +167,6 @@ async def content_generation_node(state: State) -> dict:
                 ch_id = str(uuid.uuid4())
                 word_count = _count_chinese(ch_data["content"])
                 path = FileManager.chapter_path(novel_id, ch_id)
-                write_markdown(path, ch_data["content"])
                 await db.create_chapter({
                     "id": ch_id,
                     "novel_id": novel_id,

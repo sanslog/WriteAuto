@@ -1,8 +1,24 @@
 import os
+import sys
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-DATA_DIR = Path(os.getenv("WRITEAUTO_DATA_DIR", BASE_DIR / "data"))
+
+# True = 直接运行 (python main.py)，False = PyInstaller 打包后运行 (.exe)
+RUN_DIRECT = not getattr(sys, "frozen", False)
+
+def _default_data_dir() -> Path:
+    """Determine data directory.
+
+    Direct run   → project_root/data
+    Packaged .exe → exe所在目录/data（固定位置，与原始 BASE_DIR/data 逻辑一致）
+    """
+    if RUN_DIRECT:
+        return BASE_DIR / "data"
+    # 打包后：exe 父目录就是用户放置 .exe 的位置，data 文件夹固定在其旁边
+    return Path(sys.executable).parent / "data"
+
+DATA_DIR = Path(os.getenv("WRITEAUTO_DATA_DIR", _default_data_dir()))
 NOVELS_DIR = DATA_DIR / "novels"
 DB_PATH = Path(os.getenv("WRITEAUTO_DB_PATH", DATA_DIR / "writeauto.db"))
 

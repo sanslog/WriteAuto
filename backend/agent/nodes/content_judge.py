@@ -6,8 +6,6 @@ from backend.agent.state import State
 from backend.config import MAX_MODIFICATION_COUNT
 from backend.db.database import Database
 from backend.config import DB_PATH
-from backend.storage.file_manager import FileManager
-from backend.storage.markdown import write_markdown
 
 
 async def _save_approved_content(state: State):
@@ -63,10 +61,6 @@ async def _save_approved_content(state: State):
                         "status": "used",
                         "chapter_id": saved_chapters[0]["id"],
                     })
-
-        # Export outline
-        outline_path = FileManager.outline_path(novel_id)
-        write_markdown(outline_path, state.get("outline", ""))
 
         # Log generation
         await db.create_generation_log({

@@ -1,3 +1,4 @@
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -9,9 +10,12 @@ from fastapi.responses import FileResponse
 from backend.api.crud import router as crud_router
 from backend.api.common import router as common
 from backend.api.generation import router as generation_router
-from backend.config import load_llm_config
+from backend.config import RUN_DIRECT, load_llm_config
 
-FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+if RUN_DIRECT:
+    FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+else:
+    FRONTEND_DIST = Path(sys._MEIPASS) / "frontend" / "dist"
 
 
 @asynccontextmanager
