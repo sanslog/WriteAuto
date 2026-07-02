@@ -1,11 +1,12 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import Modal from '../common/Modal.vue'
 
-defineProps({
+const props = defineProps({
   show: { type: Boolean, default: false },
+  novel: { type: Object, default: null },
 })
-const emit = defineEmits(['close', 'created'])
+const emit = defineEmits(['close', 'created', 'saved'])
 
 const title = ref('')
 const basePrompt = ref('')
@@ -13,15 +14,36 @@ const styleOfWriting = ref('')
 const worldOutlook = ref('')
 const loading = ref(false)
 
+const isEdit = () => props.novel !== null
+
+watch(() => props.show, (val) => {
+  if (val && props.novel) {
+    title.value = props.novel.title || ''
+    basePrompt.value = props.novel.base_prompt || ''
+    styleOfWriting.value = props.novel.style_of_writing || ''
+    worldOutlook.value = props.novel.world_outlook || ''
+  } else if (val && !props.novel) {
+    title.value = ''
+    basePrompt.value = ''
+    styleOfWriting.value = ''
+    worldOutlook.value = ''
+  }
+})
+
 async function handleSubmit() {
   loading.value = true
   try {
-    emit('created', {
+    const data = {
       title: title.value,
       base_prompt: basePrompt.value,
       style_of_writing: styleOfWriting.value,
       world_outlook: worldOutlook.value,
-    })
+    }
+    if (isEdit()) {
+      emit('saved', { id: props.novel.id, ...data })
+    } else {
+      emit('created', data)
+    }
   } finally {
     loading.value = false
   }
@@ -29,7 +51,7 @@ async function handleSubmit() {
 </script>
 
 <template>
-  <Modal :show="show" title="创建新作品" width="540px" @close="emit('close')">
+  <Modal :show="show" :title="isEdit() ? '编辑作品' : '创建新作品'" width="540px" @close="emit('close')">
     <form @submit.prevent="handleSubmit" class="novel-form">
       <div class="form-group">
         <label class="form-label-text">作品名称 <span class="required">*</span></label>
@@ -50,7 +72,7 @@ async function handleSubmit() {
       <div class="modal-footer-btns">
         <button type="button" class="btn-ghost" @click="emit('close')">取消</button>
         <button type="submit" class="btn-primary" :disabled="loading || !title.trim()">
-          {{ loading ? '创建中...' : '创建' }}
+          {{ loading ? (isEdit() ? '保存中...' : '创建中...') : (isEdit() ? '保存' : '创建') }}
         </button>
       </div>
     </form>

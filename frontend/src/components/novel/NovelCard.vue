@@ -1,9 +1,3 @@
-<script setup>
-defineProps({
-  novel: { type: Object, required: true },
-})
-</script>
-
 <template>
   <div class="novel-card card card-hover">
     <div class="card-accent" />
@@ -18,9 +12,21 @@ defineProps({
       <p v-if="novel.base_prompt" class="novel-desc">
         {{ novel.base_prompt.slice(0, 120) }}{{ novel.base_prompt.length > 120 ? '...' : '' }}
       </p>
+      <button class="edit-btn" @click.stop="emit('edit', novel)" title="编辑">
+        <Pencil :size="14" color="#ef4444" />
+      </button>
     </div>
   </div>
 </template>
+
+<script setup>
+import { Pencil } from 'lucide-vue-next';
+
+const props = defineProps({
+  novel: { type: Object, required: true },
+})
+const emit = defineEmits(['edit'])
+</script>
 
 <style scoped>
 .novel-card {
@@ -45,6 +51,36 @@ defineProps({
 
 .card-body {
   padding: var(--space-lg);
+  position: relative;
+}
+
+.edit-btn {
+  position: absolute;
+  bottom: var(--space-md);
+  right: var(--space-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+  color: var(--text-secondary);
+  opacity: 0;
+  transition: opacity var(--transition) var(--ease), background var(--transition) var(--ease);
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+}
+
+.novel-card:hover .edit-btn {
+  opacity: 1;
+}
+
+.edit-btn:hover {
+  background: #fef2f2;
+  border-color: #f5c6cb;
 }
 
 .novel-title {

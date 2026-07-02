@@ -9,6 +9,7 @@ import NovelCreateDialog from '../components/novel/NovelCreateDialog.vue'
 const router = useRouter()
 const novelStore = useNovelStore()
 const showCreate = ref(false)
+const editingNovel = ref(null)
 
 onMounted(() => {
   novelStore.fetchNovels()
@@ -20,8 +21,18 @@ async function handleCreate(data) {
   router.push(`/novel/${novel.id}`)
 }
 
+async function handleEditSave(data) {
+  const { id, ...payload } = data
+  await novelStore.updateNovel(id, payload)
+  editingNovel.value = null
+}
+
 function openNovel(id) {
   router.push(`/novel/${id}`)
+}
+
+function handleEditClick(novel) {
+  editingNovel.value = novel
 }
 </script>
 
@@ -61,14 +72,16 @@ function openNovel(id) {
         :style="{ animationDelay: (i * 0.08) + 's' }"
         class="novel-card-wrapper"
       >
-        <NovelCard :novel="novel" />
+        <NovelCard :novel="novel" @edit="handleEditClick" />
       </div>
     </div>
 
     <NovelCreateDialog
-      :show="showCreate"
-      @close="showCreate = false"
+      :show="showCreate || !!editingNovel"
+      :novel="editingNovel"
+      @close="showCreate = false; editingNovel = null"
       @created="handleCreate"
+      @saved="handleEditSave"
     />
   </div>
 </template>
