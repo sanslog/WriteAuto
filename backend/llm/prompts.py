@@ -10,7 +10,8 @@ def build_generation_prompt(
     context: str,
     user_input_text: str = "",
     enter_loop: bool = False,
-) -> str:
+    previous_generated_text: str = "",
+) -> tuple[str, str]:
     system = f"""你是一位专业的小说作家。请根据以下设定创作小说内容。
 
 【世界设定】
@@ -47,9 +48,12 @@ def build_generation_prompt(
 
     if enter_loop and user_input_text:
         user_parts.append(f"【修改意见】\n请根据以下意见重新修改内容：\n{user_input_text}")
+        if previous_generated_text:
+            user_parts.append(f"【上次生成的内容（供参考，需按要求修改）】\n{previous_generated_text[:3000]}")
 
     user_parts.append(
-        "请根据以上所有信息，续写当前节点的章节内容。可以分多个章节，要求每章字数为2100-2300字，单次生成超过2300字数限制时进行章节拆分，并分别为每个章节取标题且每章字数不少于2000字。"
+        "请根据以上所有信息，续写当前节点的章节内容。可以分多个章节，要求每章字数为2100-2300字，单次生成超过2300字数限制时进行章节拆分，并分别为每个章节取标题且每章字数不少于2000字。" \
+        "每章文本内容以'第X章'为开头，X为汉字数字"
         "输出格式为纯文本，章节标题用「第X章 章节名」格式，生成章节序号请延续已写内容最后一章，如果已写内容为空则从第一章开始。"
     )
 

@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 import uuid
 
@@ -7,6 +8,8 @@ from langgraph.types import interrupt
 from backend.agent.state import State
 from backend.config import SPLIT_THRESHOLD_CHARS
 
+logger = logging.getLogger(__name__)
+
 
 def _count_chinese(text: str) -> int:
     return len(re.findall(r"[一-鿿]", text))
@@ -14,7 +17,7 @@ def _count_chinese(text: str) -> int:
 
 def _split_chapters(text: str) -> list[dict]:
     """Split generated text into chapters."""
-    pattern = re.compile(r"(第[一二三四五六七八九十百千\d]+章[^\n]*)")
+    pattern = re.compile(r"^(第[一二三四五六七八九十百千\d]+章)\s*$")
     parts = pattern.split(text)
 
     chapters = []
@@ -89,6 +92,7 @@ async def content_generation_node(state: State) -> dict:
         context=state["context"],
         user_input_text=state.get("user_input_text", ""),
         enter_loop=state.get("enter_loop", False),
+        previous_generated_text=state.get("generated_text", ""),
     )
 
     # ── Pause: hand prompt to API layer for streaming LLM call ──
@@ -106,7 +110,19 @@ async def content_generation_node(state: State) -> dict:
 
     generated_text = resume_dict.get("generated_text", "")
     if not generated_text:
-        generated_text = state.get("generated_text", "")
+        saved_text = state.get("generated_text", "")
+        if saved_text:
+            logger.warning(
+                "LLM returned empty text for generation %s, "
+                "falling back to previous generated_text (%d chars)",
+                state.get("generation_id"), len(saved_text),
+            )
+            generated_text = saved_text
+        else:
+            logger.warning(
+                "LLM returned empty text for generation %s and no fallback available",
+                state.get("generation_id"),
+            )
 
     # Split into chapters
     chapters_data = _split_chapters(generated_text)
@@ -139,6 +155,8 @@ async def content_generation_node(state: State) -> dict:
                         "word_count": word_count,
                         "generation_id": generation_id,
                     })
+                    # Sync in-memory title so returned state is consistent
+                    existing["title"] = ch_data["title"]
                 else:
                     ch_id = str(uuid.uuid4())
                     ch_path = FileManager.chapter_path(novel_id, ch_id)
@@ -149,7 +167,7 @@ async def content_generation_node(state: State) -> dict:
                         "content": ch_data["content"],
                         "file_path": str(ch_path),
                         "status": "draft",
-                        "sort_order": len(saved_chapters) + i,
+                        "sort_order": i,
                         "word_count": word_count,
                         "generation_id": generation_id,
                     })
@@ -158,6 +176,13 @@ async def content_generation_node(state: State) -> dict:
                         "title": ch_data["title"],
                         "file_path": str(ch_path),
                     })
+
+            # ── Clean up excess chapters if count decreased ──
+            if len(chapters_data) < len(saved_chapters):
+                excess = saved_chapters[len(chapters_data):]
+                for ch in excess:
+                    await db.delete_chapter(ch["id"])
+                saved_chapters[:] = saved_chapters[:len(chapters_data)]
         else:
             # First generation: create new chapters
             existing_chapters = await db.get_chapters_by_status(novel_id, "draft")
