@@ -141,12 +141,13 @@ async def content_generation_node(state: State) -> dict:
                     })
                 else:
                     ch_id = str(uuid.uuid4())
+                    ch_path = FileManager.chapter_path(novel_id, ch_id)
                     await db.create_chapter({
                         "id": ch_id,
                         "novel_id": novel_id,
                         "title": ch_data["title"],
                         "content": ch_data["content"],
-                        "file_path": str(path),
+                        "file_path": str(ch_path),
                         "status": "draft",
                         "sort_order": len(saved_chapters) + i,
                         "word_count": word_count,
@@ -155,7 +156,7 @@ async def content_generation_node(state: State) -> dict:
                     saved_chapters.append({
                         "id": ch_id,
                         "title": ch_data["title"],
-                        "file_path": str(path),
+                        "file_path": str(ch_path),
                     })
         else:
             # First generation: create new chapters

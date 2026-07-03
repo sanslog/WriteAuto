@@ -1,4 +1,8 @@
+import logging
+
 from backend.db.database import Database
+
+logger = logging.getLogger(__name__)
 
 
 async def get_cursor_info(db:Database, novel_id: str) -> dict:
@@ -26,11 +30,8 @@ async def get_cursor_info(db:Database, novel_id: str) -> dict:
         await db.update_novel(novel_id, {"cursor_position": cursor})
         detailed_outline = nodes[cursor].get("detailed_outline", "")
 
-    # print debug info:
-    print(f"debug:cursor:\n\noutline:")
-    for it in outline_lines:
-        print(it)
-    print(f"\n\ndetailed:\n{detailed_outline}\n\ncursor:{cursor}")
+    logger.debug("cursor info — outline:\n%s\n\ndetailed:\n%s\ncursor: %d",
+                 "\n".join(outline_lines), detailed_outline[:200], cursor)
 
     return {
         "outline": "\n".join(outline_lines),

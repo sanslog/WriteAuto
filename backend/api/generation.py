@@ -1,6 +1,8 @@
 import json
 import logging
+import sys
 import uuid
+from pathlib import Path
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
@@ -9,8 +11,28 @@ from langgraph.types import Command
 from backend.db.models import GenerationRunRequest, JudgeRequest
 
 from backend.agent import cancellation
+from backend.config import RUN_DIRECT
 
 logger = logging.getLogger(__name__)
+
+# ── 文件日志：打包后写入 DATA_DIR，确保能捕获到错误 ──
+if not RUN_DIRECT:
+    try:
+        _log_dir = Path(sys.executable).parent / "data"
+        _log_dir.mkdir(parents=True, exist_ok=True)
+        _fh = logging.FileHandler(_log_dir / "generation.log", encoding="utf-8")
+        _fh.setLevel(logging.DEBUG)
+        _fh.setFormatter(logging.Formatter(
+            "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+        ))
+        logger.addHandler(_fh)
+        # 也把 uvicorn 级别的日志写入同一文件
+        _uvicorn_logger = logging.getLogger("uvicorn")
+        _uvicorn_logger.addHandler(_fh)
+        logger.info("文件日志已初始化: %s", _log_dir / "generation.log")
+    except Exception as _e:
+        # 如果写文件日志失败，不影响主流程
+        logger.warning("初始化文件日志失败: %s", _e)
 
 router = APIRouter(prefix="/api", tags=["generation"])
 
@@ -169,8 +191,13 @@ async def prepare_generation(novel_id: str):
 
     gen_id = str(uuid.uuid4())
 
-    db = Database(DB_PATH)
-    await db.init()
+    try:
+        db = Database(DB_PATH)
+        await db.init()
+    except Exception as e:
+        logger.exception("数据库初始化失败 (DB_PATH=%s): %s", DB_PATH, e)
+        return {"success": False, "error": f"数据库初始化失败: {e}"}
+
     try:
         novel = await db.get_novel(novel_id)
         if not novel:
@@ -201,6 +228,9 @@ async def prepare_generation(novel_id: str):
                 "approved_chapters": approved_chapters,
             },
         }
+    except Exception as e:
+        logger.exception("prepare_generation 失败 (novel_id=%s): %s", novel_id, e)
+        return {"success": False, "error": f"生成准备失败: {e}"}
     finally:
         await db.close()
 
@@ -356,10 +386,18 @@ async def get_generation_status(gen_id: str):
 @router.post("/novels/{novel_id}/generate/prepare")
 async def prepare_and_store(novel_id: str):
     """Combined prepare + session creation."""
-    result = await prepare_generation(novel_id)
+    try:
+        result = await prepare_generation(novel_id)
+    except Exception as e:
+        logger.exception("prepare_and_store 内部崩溃 (novel_id=%s): %s", novel_id, e)
+        return {"success": False, "error": f"服务内部错误: {e}"}
     if result.get("success") and "data" in result:
         data = result["data"]
         gen_id = data["generation_id"]
         session = AgentSession(novel_id=novel_id, gen_id=gen_id)
         _sessions[gen_id] = session
+        logger.info(
+            "已创建 generation session  gen_id=%s  novel_id=%s",
+            gen_id, novel_id,
+        )
     return result

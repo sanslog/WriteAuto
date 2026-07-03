@@ -14,15 +14,53 @@ from pathlib import Path
 block_cipher = None
 
 # ---------------------------------------------------------------------------
+# 收集所有需要传递依赖的包（子模块 + C扩展二进制 + 数据文件）
+# ---------------------------------------------------------------------------
+from PyInstaller.utils.hooks import collect_submodules, collect_all
+
+_BINARIES = []
+_DATAS = []
+_HIDDEN_IMPORTS = []
+
+_COLLECT_PACKAGES = [
+    # 核心框架
+    'langgraph',
+    'langchain_core',
+    'openai',
+    # C 扩展包（必须收集 .pyd 二进制文件）
+    'pydantic',
+    'pydantic_core',
+    'xxhash',
+    'jiter',
+    'aiosqlite',
+    # 网络层
+    'httpx',
+    'httpcore',
+    'sniffio',
+    'anyio',
+    'charset_normalizer',
+    # multipart 表单解析
+    'multipart',
+    # 类型工具
+    'typing_extensions',
+]
+
+for _pkg in _COLLECT_PACKAGES:
+    _b, _d, _h = collect_all(_pkg)
+    _BINARIES.extend(_b)
+    _DATAS.extend(_d)
+    _HIDDEN_IMPORTS.extend(_h)
+
+# ---------------------------------------------------------------------------
 # 1. Analysis — scan main.py and all its static imports, exclude test packages
 # ---------------------------------------------------------------------------
 a = Analysis(
     ['main.py'],
     pathex=[],
-    binaries=[],
-    datas=[],
-    hiddenimports=[
-        # FastAPI auto-discovery
+    binaries=_BINARIES,
+    datas=_DATAS,
+    hiddenimports=_HIDDEN_IMPORTS + [
+        # FastAPI / uvicorn auto-discovery
         'uvicorn.logging',
         'uvicorn.loops.auto',
         'uvicorn.protocols.http.auto',
@@ -62,14 +100,18 @@ a = Analysis(
         'backend.agent.nodes.modify_loop',
         # pywebview
         'webview.platforms.win32',
-    ],
+    ] + collect_submodules('langgraph')          # 兜底：langgraph 所有子模块
+    + collect_submodules('langgraph.checkpoint')  # langgraph-checkpoint 所有子模块
+    + collect_submodules('langchain_core')        # langchain-core 所有子模块
+    + collect_submodules('openai'),               # openai SDK 所有子模块
     hookspath=[],
     hooksconfig={},
-    # Exclude test packages — not needed in the bundled .exe
     excludes=[
         'pytest',
         'pytest_asyncio',
         '_pytest',
+        'unittest',
+        'unittest.mock',
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
