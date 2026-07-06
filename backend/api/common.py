@@ -48,5 +48,6 @@ async def ping_OpenAI(req: PingRequest):
     except Exception as e:
         return {
             "success": False,
+            "status_code": response.status_code,
             "error": str(e)
         }

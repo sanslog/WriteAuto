@@ -93,32 +93,40 @@ async function pingLLM() {
   }
 
   try {
-    // 发送 ping 请求
     const response = await client.post('/pingOpenAI', {
       api_key: form.value.llm_api_key,
       baseurl: form.value.llm_base_url,
       model_name: form.value.llm_model
     })
 
-    // 检查响应状态
+    // 检查 HTTP 状态（如果后端严格遵循则总是 200，但仍保留）
     if (response.status === 200 && response.data) {
-      // 成功
-      pingStatus.value = 'success'
-
-      // 可选：显示成功提示
-      // 你可以在这里添加一个成功消息的 toast 或提示
-      console.log('Ping 成功:', response.data)
-
-      // 如果有返回消息，可以记录
-      if (response.data.message) {
-        // 可以显示成功信息
-        console.log('连接成功:', response.data.message)
+      // 统一使用后端返回的 success 字段
+      if (response.data.success === true) {
+        pingStatus.value = 'success'
+        console.log('Ping 成功:', response.data.data || response.data)
+      } else {
+        // 业务失败
+        pingStatus.value = 'error'
+        const errorMsg = response.data.error || 'LLM API 连接失败（未提供具体错误）'
+        errorDetails.value = {
+          url: '/pingOpenAI',
+          method: 'POST',
+          status: response.status,
+          statusText: response.statusText || 'OK',
+          requestBody: JSON.stringify({
+            api_key: '===已隐藏===',
+            baseurl: form.value.llm_base_url,
+            model_name: form.value.llm_model
+          }, null, 2),
+          responseBody: JSON.stringify(response.data, null, 2),
+          errorMessage: errorMsg
+        }
+        showErrorModal.value = true
       }
     } else {
-      // 状态码不是 200
+      // 非 200 状态（极少发生，但保留兜底逻辑）
       pingStatus.value = 'error'
-
-      // 构建错误详情
       errorDetails.value = {
         url: '/pingOpenAI',
         method: 'POST',
@@ -135,10 +143,8 @@ async function pingLLM() {
       showErrorModal.value = true
     }
   } catch (error) {
-    // 网络错误或其他异常
+    // 网络异常或请求被拒绝
     pingStatus.value = 'error'
-
-    // 构建错误详情
     errorDetails.value = {
       url: '/pingOpenAI',
       method: 'POST',
@@ -156,7 +162,6 @@ async function pingLLM() {
         '网络请求失败，请检查网络连接'
     }
     showErrorModal.value = true
-
     console.error('Ping 失败:', error)
   } finally {
     isPinging.value = false
