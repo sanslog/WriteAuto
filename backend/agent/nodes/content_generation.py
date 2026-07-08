@@ -17,7 +17,7 @@ def _count_chinese(text: str) -> int:
 
 def _split_chapters(text: str) -> list[dict]:
     """Split generated text into chapters."""
-    pattern = re.compile(r"^(第[一二三四五六七八九十百千\d]+章)\s*$")
+    pattern = re.compile(r"(第[一二三四五六七八九十百千\d]+章[^\n]*)")
     parts = pattern.split(text)
 
     chapters = []
