@@ -1,7 +1,7 @@
 
 from pydantic import BaseModel
-import httpx
 from fastapi import APIRouter
+from openai import AsyncOpenAI, APIStatusError
 
 
 router = APIRouter(prefix="/api", tags=["common"])
@@ -12,42 +12,45 @@ class PingRequest(BaseModel):
     baseurl: str
     model_name: str
 
+
 # routers:
 @router.post("/pingOpenAI")
 async def ping_OpenAI(req: PingRequest):
     """
-    测试 LLM API 连接
+    测试 LLM API 连接（通过 OpenAI SDK）
     """
+    if not req.api_key or req.baseurl or req.model_name:
+        return {
+            "success": False,
+            "status_code": 400,
+            "error": "必要信息缺失",
+        }
     try:
-        # 清理 URL
-        baseurl = req.baseurl.rstrip('/')
-        
-        # 构建请求
-        url = f"{baseurl}/chat/completions"
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {req.api_key}"
+        client = AsyncOpenAI(
+            api_key=req.api_key,
+            base_url=req.baseurl.rstrip('/'),
+            max_retries=0,
+            timeout=10.0,
+        )
+        resp = await client.chat.completions.create(
+            model=req.model_name,
+            messages=[{"role": "user", "content": "Say'Hi'"}],
+            max_tokens=1000,
+        )
+        return {
+            "success": True,
+            "status_code": 200,
+            "data": resp.model_dump(),
         }
-        body = {
-            "model": req.model_name or "deepseek-chat",
-            "messages": [{"role": "user", "content": "Say'Hi'"}],
-            "max_tokens": 2
+    except APIStatusError as e:
+        return {
+            "success": False,
+            "status_code": e.status_code,
+            "error": e.message,
         }
-
-        # 发送请求
-        async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.post(url, json=body, headers=headers)
-            
-            # 直接返回结果
-            return {
-                "success": response.status_code == 200,
-                "status_code": response.status_code,
-                "data": response.json() if response.status_code == 200 else response.text
-            }
-
     except Exception as e:
         return {
             "success": False,
-            "status_code": response.status_code,
-            "error": str(e)
+            "status_code": 500,
+            "error": str(e),
         }
