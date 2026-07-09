@@ -93,54 +93,35 @@ async function pingLLM() {
   }
 
   try {
-    const response = await client.post('/pingOpenAI', {
+    // client 拦截器已 unwrap 了 res.data，result 就是响应体本身
+    const result = await client.post('/pingOpenAI', {
       api_key: form.value.llm_api_key,
       baseurl: form.value.llm_base_url,
       model_name: form.value.llm_model
     })
 
-    // 检查 HTTP 状态（如果后端严格遵循则总是 200，但仍保留）
-    if (response.status === 200 && response.data) {
-      // 统一使用后端返回的 success 字段
-      if (response.data.success === true) {
-        pingStatus.value = 'success'
-        console.log('Ping 成功:', response.data.data || response.data)
-      } else {
-        // 业务失败
-        pingStatus.value = 'error'
-        const errorMsg = response.data.error || 'LLM API 连接失败（未提供具体错误）'
-        errorDetails.value = {
-          url: '/pingOpenAI',
-          method: 'POST',
-          status: response.status,
-          statusText: response.statusText || 'OK',
-          requestBody: JSON.stringify({
-            api_key: '===已隐藏===',
-            baseurl: form.value.llm_base_url,
-            model_name: form.value.llm_model
-          }, null, 2),
-          responseBody: JSON.stringify(response.data, null, 2),
-          errorMessage: errorMsg
-        }
-        showErrorModal.value = true
-      }
-    } else {
-      // 非 200 状态（极少发生，但保留兜底逻辑）
+    // success 显式为 false → 业务失败（如认证错误）
+    // 其他情况 → 连接成功
+    if (result && result.success === false) {
+      // 业务失败
       pingStatus.value = 'error'
       errorDetails.value = {
         url: '/pingOpenAI',
         method: 'POST',
-        status: response.status || '未知',
-        statusText: response.statusText || '请求失败',
+        status: result.status_code || '未知',
         requestBody: JSON.stringify({
           api_key: '===已隐藏===',
           baseurl: form.value.llm_base_url,
           model_name: form.value.llm_model
         }, null, 2),
-        responseBody: JSON.stringify(response.data || {}, null, 2),
-        errorMessage: response.data?.message || response.data?.error || `请求失败 (HTTP ${response.status})`
+        responseBody: JSON.stringify(result, null, 2),
+        errorMessage: result.error || 'LLM API 连接失败（未提供具体错误）'
       }
       showErrorModal.value = true
+    } else {
+      // 成功：success === true（新格式）或原始 OpenAI 响应（旧格式均视为成功）
+      pingStatus.value = 'success'
+      console.log('Ping 成功:', result?.data || result)
     }
   } catch (error) {
     // 网络异常或请求被拒绝
@@ -149,7 +130,6 @@ async function pingLLM() {
       url: '/pingOpenAI',
       method: 'POST',
       status: error.response?.status || '网络错误',
-      statusText: error.response?.statusText || error.message || '未知错误',
       requestBody: JSON.stringify({
         api_key: '===已隐藏===',
         baseurl: form.value.llm_base_url,

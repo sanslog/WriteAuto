@@ -28,13 +28,9 @@ def main(dev: bool = False):
     api_thread = threading.Thread(target=start_api, daemon=True)
     api_thread.start()
 
-    from backend.bridge import Bridge
-
-    bridge = Bridge()
     window = webview.create_window(
         title="WriteAuto",
         url=f"http://{API_HOST}:{API_PORT}/",
-        js_api=bridge,
         width=1400,
         height=900,
     )

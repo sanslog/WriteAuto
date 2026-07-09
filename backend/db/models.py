@@ -1,8 +1,15 @@
+"""Pydantic schemas for request/response validation.
+
+- Create / Update models for each entity.
+- Response models are plain dicts returned by repos; validation happens at the
+  API layer via the schema models below.
+"""
+
 from pydantic import BaseModel, Field
 from typing import Optional
 
 
-# ── Novel ──
+# ??? Novel ???
 
 class NovelCreate(BaseModel):
     title: str = ""
@@ -20,7 +27,7 @@ class NovelUpdate(BaseModel):
     is_done: Optional[int] = None
 
 
-# ── Plot Node ──
+# ??? Plot Node ???
 
 class PlotNodeCreate(BaseModel):
     novel_id: str
@@ -40,7 +47,7 @@ class PlotNodeUpdate(BaseModel):
     chapter_id: Optional[str] = None
 
 
-# ── Chapter ──
+# ??? Chapter ???
 
 class ChapterCreate(BaseModel):
     novel_id: str
@@ -63,7 +70,7 @@ class ChapterUpdate(BaseModel):
     generation_id: Optional[str] = None
 
 
-# ── Character ──
+# ??? Character ???
 
 class CharacterCreate(BaseModel):
     novel_id: str
@@ -78,7 +85,7 @@ class CharacterUpdate(BaseModel):
     role: Optional[str] = None
 
 
-# ── Character State ──
+# ??? Character State ???
 
 class CharacterStateCreate(BaseModel):
     character_id: str
@@ -86,7 +93,7 @@ class CharacterStateCreate(BaseModel):
     state_json: str = "{}"
 
 
-# ── Foreshadow ──
+# ??? Foreshadow ???
 
 class ForeshadowCreate(BaseModel):
     novel_id: str
@@ -102,20 +109,7 @@ class ForeshadowUpdate(BaseModel):
     chapter_id: Optional[str] = None
 
 
-# ── Generation ──
-
-class GenerationPrepareResponse(BaseModel):
-    generation_id: str
-    novel_id: str
-    outline: str
-    detailed_outline: str
-    cursor_position: int
-    plot_nodes_count: int
-    next_node_title: str
-    characters: list[dict]
-    foreshadows: list[dict]
-    approved_chapters: list[dict]
-
+# ??? Generation ???
 
 class GenerationRunRequest(BaseModel):
     chapter_ids: list[str] = []

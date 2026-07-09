@@ -1,69 +1,74 @@
 import json
+import logging
 
 from langgraph.types import interrupt
 
 from backend.agent.state import State
-from backend.config import MAX_MODIFICATION_COUNT
+from backend.config import MAX_MODIFICATION_COUNT, DB_PATH
 from backend.db.database import Database
-from backend.config import DB_PATH
+from backend.db.repos import (
+    NovelRepo, PlotNodeRepo, ChapterRepo, CharacterRepo, ForeshadowRepo, SettingsRepo,
+)
+
+logger = logging.getLogger(__name__)
 
 
 async def _save_approved_content(state: State):
-    """Save all approved content: mark chapters approved, advance cursor, etc."""
     db = Database(DB_PATH)
     await db.init()
     try:
+        novel_repo = NovelRepo(db)
+        plot_repo = PlotNodeRepo(db)
+        chapter_repo = ChapterRepo(db)
+        char_repo = CharacterRepo(db)
+        ff_repo = ForeshadowRepo(db)
+        settings_repo = SettingsRepo(db)
+
         novel_id = state["novel_id"]
         saved_chapters = state.get("_saved_chapters", [])
 
-        # Mark chapters as approved
         for ch in saved_chapters:
-            await db.update_chapter(ch["id"], {"status": "approved"})
+            await chapter_repo.update(ch["id"], {"status": "approved"})
 
-        # Associate chapter to current plot node
         cursor = state["cursor_position"]
-        nodes = await db.get_plot_nodes(novel_id)
+        nodes = await plot_repo.get_by_novel(novel_id)
         if cursor < len(nodes) and saved_chapters:
-            await db.update_plot_node(nodes[cursor]["id"], {
+            await plot_repo.update(nodes[cursor]["id"], {
                 "chapter_id": saved_chapters[0]["id"],
                 "status": "written",
             })
 
-        # Save character states
-        chars = await db.get_characters(novel_id)
+        chars = await char_repo.get_by_novel(novel_id)
         states_json = state.get("character_states_json", "[]")
         states = json.loads(states_json) if isinstance(states_json, str) else states_json
         for ch_data in saved_chapters:
             for st in states:
                 for char in chars:
                     if char["name"] == st.get("name", ""):
-                        await db.create_character_state({
+                        await char_repo.create_state({
                             "character_id": char["id"],
                             "chapter_id": ch_data["id"],
                             "state_json": json.dumps(st, ensure_ascii=False),
                         })
 
-        # Advance cursor
         new_cursor = min(cursor + 1, len(nodes) - 1) if nodes else 0
-        await db.update_novel(novel_id, {"cursor_position": new_cursor})
+        await novel_repo.update(novel_id, {"cursor_position": new_cursor})
 
-        # Mark foreshadows as used
         foreshadow_ids = state.get("foreshadow_ids", [])
         if foreshadow_ids:
             for fid in foreshadow_ids:
-                await db.update_foreshadow(fid, {"status": "used"})
+                await ff_repo.update(fid, {"status": "used"})
         else:
-            all_ff = await db.get_foreshadows(novel_id)
+            all_ff = await ff_repo.get_by_novel(novel_id)
             unused = [f for f in all_ff if f.get("status") == "unused"]
             if saved_chapters:
                 for f in unused:
-                    await db.update_foreshadow(f["id"], {
+                    await ff_repo.update(f["id"], {
                         "status": "used",
                         "chapter_id": saved_chapters[0]["id"],
                     })
 
-        # Log generation
-        await db.create_generation_log({
+        await settings_repo.create_generation_log({
             "novel_id": novel_id,
             "generation_id": state["generation_id"],
             "prompt": "",
@@ -76,13 +81,13 @@ async def _save_approved_content(state: State):
 
 
 async def _mark_as_discarded(state: State):
-    """Mark draft chapters as discarded."""
     db = Database(DB_PATH)
     await db.init()
     try:
+        chapter_repo = ChapterRepo(db)
         saved_chapters = state.get("_saved_chapters", [])
         for ch in saved_chapters:
-            await db.update_chapter(ch["id"], {"status": "discarded"})
+            await chapter_repo.update(ch["id"], {"status": "discarded"})
     finally:
         await db.close()
 
@@ -105,7 +110,6 @@ async def content_judge_node(state: State) -> dict:
     if action == "approve":
         await _save_approved_content(state)
         return {"should_end": True, "enter_loop": False}
-
     elif action == "modify" and mod_count < MAX_MODIFICATION_COUNT:
         return {
             "should_end": False,
@@ -113,8 +117,7 @@ async def content_judge_node(state: State) -> dict:
             "modification_count": mod_count + 1,
             "user_input_text": judgment.get("text", ""),
         }
-
-    else:  # cancel or overflow
+    else:
         if action != "approve":
             await _mark_as_discarded(state)
         return {"should_end": True, "enter_loop": False}

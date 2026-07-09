@@ -1,26 +1,31 @@
 from backend.agent.state import State
+from backend.db.database import Database
+from backend.db.dependencies import db_session
+from backend.db.repos import NovelRepo, CharacterRepo, ForeshadowRepo
+from backend.config import DB_PATH
+from backend.services.cursor import get_cursor_info
 
 
 async def init_check_node(state: State) -> dict:
-    from backend.db.database import Database
-    from backend.config import DB_PATH
-    from backend.services.cursor import get_cursor_info
-
     novel_id = state["novel_id"]
 
     db = Database(DB_PATH)
     await db.init()
-    try:
-        novel = await db.get_novel(novel_id)
+    async with db_session() as db:
+        novel_repo = NovelRepo(db)
+        char_repo = CharacterRepo(db)
+        ff_repo = ForeshadowRepo(db)
+
+        novel = await novel_repo.get(novel_id)
         cursor_info = await get_cursor_info(db, novel_id)
 
-        characters = await db.get_characters(novel_id)
+        characters = await char_repo.get_by_novel(novel_id)
         char_design = "\n".join(
-            f"- {c['name']}（{c.get('role', '')}）: {c.get('description', '')}"
+            f"- {c['name']} ({c.get('role', '')}): {c.get('description', '')}"
             for c in characters
         )
 
-        foreshadows = await db.get_foreshadows(novel_id)
+        foreshadows = await ff_repo.get_by_novel(novel_id)
         unused_ff = [f for f in foreshadows if f.get("status") == "unused"]
         foreshadow_text = "\n".join(
             f"- [{f['title']}] {f.get('description', '')}" for f in unused_ff
@@ -40,6 +45,3 @@ async def init_check_node(state: State) -> dict:
             "unlawful": False,
             "unlaw_reason": "",
         }
-    finally:
-        await db.close()
-

@@ -12,6 +12,7 @@ def build_generation_prompt(
     enter_loop: bool = False,
     previous_generated_text: str = "",
 ) -> tuple[str, str]:
+    # 系统提示词
     system = f"""你是一位专业的小说作家。请根据以下设定创作小说内容。
 
 【世界设定】
@@ -26,6 +27,7 @@ def build_generation_prompt(
 
 你必须严格遵守以上设定进行创作。"""
 
+    # 用户部分
     user_parts = []
 
     if outline:
@@ -46,15 +48,19 @@ def build_generation_prompt(
     if context:
         user_parts.append(f"【已写内容】\n{context}")
 
-    if enter_loop and user_input_text:
-        user_parts.append(f"【修改意见】\n请根据以下意见重新修改内容：\n{user_input_text}")
-        if previous_generated_text:
-            user_parts.append(f"【上次生成的内容（供参考，需按要求修改）】\n{previous_generated_text[:3000]}")
+    if enter_loop and user_input_text and previous_generated_text:
+        user_parts.append(f"【修改意见】#请根据以下意见重新修改上次生成内容:\n{user_input_text}")
+        user_parts.append(f"【修改意见】#上次生成的内容:\n{('（前文省略）......'+previous_generated_text[:4000]) if len(previous_generated_text)>4000 else previous_generated_text}")
 
     user_parts.append(
-        "请根据以上所有信息，续写当前节点的章节内容。可以分多个章节，要求每章字数为2100-2300字，单次生成超过2300字数限制时进行章节拆分，并分别为每个章节取标题且每章字数不少于2000字。" \
-        "每章文本内容以'第X章'为开头，X为汉字数字"
-        "输出格式为纯文本，章节标题用「第X章 章节名」格式，生成章节序号请延续已写内容最后一章，如果已写内容为空则从第一章开始。"
+        "\n要求："
+        "\n1.请根据以上所有信息，续写当前节点的章节内容。可生成多个章节，每章字数2100-2300字，超出2300字时拆分为多个章节，每章字数不少于2000字。请以最高优先级严格遵循字数要求。"
+        "\n2.章节标题格式为：第X章 章节名（例如：第一章 初遇、第二章 惊变），X为大写汉字数字，标题须独占一行。"
+        "\n3.每个标题前后必须各有一个空行，与正文完全隔开。严禁将标题直接拼接在前文末尾，必须在空行之后另起一行书写标题。"
+        "\n4.章节序号延续【已写内容】中最后一章的编号。若已写内容为空，则从第一章开始。"
+        "\n5.仅输出纯文本正文，不要添加任何额外说明、注释或评语。"
+        "\n6.请确保输出第一行是'第X章 章节名'，确保输出文本中有章节号和章节名。"
+        "\n7.修改模式下，【已写内容】决定章节序号，【上次生成的内容】不参与序号计算，请勿混淆。" if previous_generated_text else ""
     )
 
     return system, "\n\n".join(user_parts)

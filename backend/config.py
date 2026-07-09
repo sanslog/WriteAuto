@@ -45,11 +45,12 @@ _LLM_KEY_MAP = {
 async def load_llm_config():
     """Load LLM config from the app_settings table into module-level variables."""
     from backend.db.database import Database
-
+    from backend.db.repos import SettingsRepo
     db = Database(DB_PATH)
     await db.init()
     try:
-        settings = await db.get_settings()
+        settings_repo = SettingsRepo(db)
+        settings = await settings_repo.get_all()
         _apply_settings(settings)
     finally:
         await db.close()
