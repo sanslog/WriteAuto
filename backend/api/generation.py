@@ -70,7 +70,7 @@ class AgentSession:
 
 
 def _format_sse(event: str, data: dict) -> str:
-    return f"event: {event}\ndata: {_json_mod.dumps(data, ensure_ascii=False)}\n\n"
+    return f"event: {event}\n\ndata: {_json_mod.dumps(data, ensure_ascii=False)}\n\n"
 
 
 def _get_interrupt_value(state_snapshot, node_name: str) -> dict | None:
@@ -96,13 +96,12 @@ async def _interrupt_loop(gen_id: str, config: dict, session: AgentSession):
         if gen_req and gen_req.get("type") == "generation_request":
             yield _format_sse("generation_start", {})
             llm = create_llm_provider()
+            llm.set_gen_id(gen_id)  # 绑定 gen_id 支持底层取消
             full_text = ""
             async for chunk in llm.chat_stream(
                 [{"role": "system", "content": gen_req["system"]}, {"role": "user", "content": gen_req["user"]}],
                 temperature=0.8, max_tokens=LLM_GENERATION_MAX_TOKENS,
             ):
-                if cancellation.is_cancelled(gen_id):
-                    break
                 full_text += chunk
                 yield _format_sse("token", {"token": chunk})
             yield _format_sse("generation_done", {})
@@ -117,7 +116,7 @@ async def _interrupt_loop(gen_id: str, config: dict, session: AgentSession):
 
         if current_state.next:
             async for event in continue_writing_graph.astream(None, config, stream_mode="updates"):
-                for _node_name, output in event.items():
+                for _, output in event.items():
                     if isinstance(output, dict):
                         session.state.update(output)
             continue
@@ -212,9 +211,11 @@ async def run_generation(novel_id: str, body: GenerationRunRequest):
         "character_states_json": "", "_saved_chapters": [], "_cancelled": False,
     }
 
+    # 先在 cancellation 中注册，让 provider 能拿到 asyncio.Event
+    cancellation.register(gen_id)
+
     async def event_stream():
         from backend.agent.graph import continue_writing_graph
-        cancellation.register(gen_id)
         try:
             session.set_step("generating")
             async for event in continue_writing_graph.astream(initial_state, config, stream_mode="updates"):
@@ -242,9 +243,11 @@ async def submit_judgment(gen_id: str, body: JudgeRequest):
     config = {"configurable": {"thread_id": gen_id}}
     judgment_payload = {"action": body.action, "text": body.text}
 
+    # 注册或重新注册（可能被以前的 unregister 清掉了）
+    cancellation.register(gen_id)
+
     async def judge_event_stream():
         from backend.agent.graph import continue_writing_graph
-        cancellation.register(gen_id)
         try:
             session.set_step("generating")
             async for event in continue_writing_graph.astream(Command(resume=judgment_payload), config, stream_mode="updates"):

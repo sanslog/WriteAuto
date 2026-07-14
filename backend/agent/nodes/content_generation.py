@@ -136,8 +136,15 @@ async def content_generation_node(state: State) -> dict:
 
         # Extract character states
         from backend.llm.factory import create_llm_provider
-        llm = create_llm_provider()
-        states = await extract_character_states(llm, generated_text, characters)
+        from backend.agent import cancellation
+        gen_id = state.get("generation_id")
+        if gen_id and cancellation.is_cancelled(gen_id):
+            logger.info("Skipping character state extraction for cancelled generation %s", gen_id)
+            character_states_json = "[]"
+        else:
+            llm = create_llm_provider()
+            llm.set_gen_id(gen_id)
+            states = await extract_character_states(llm, generated_text, characters)
         character_states_json = json.dumps(states, ensure_ascii=False)
 
         saved_chapters = state.get("_saved_chapters", [])
