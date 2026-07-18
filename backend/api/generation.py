@@ -1,4 +1,4 @@
-"""Generation API routes - SSE-based streaming generation."""
+﻿"""Generation API routes - SSE-based streaming generation."""
 
 import json as _json_mod
 import logging
@@ -36,7 +36,7 @@ if not RUN_DIRECT:
 
 router = APIRouter(prefix="/api", tags=["generation"])
 _sessions: dict[str, "AgentSession"] = {}
-PUBLIC_STATE_KEYS = {"generated_text", "chapter_titles", "character_states_json", "modification_count"}
+PUBLIC_STATE_KEYS = {"generated_text", "chapter_titles", "character_states_json", "modification_count", "mcp_results", "mcp_context"}
 
 
 class AgentSession:
@@ -96,7 +96,7 @@ async def _interrupt_loop(gen_id: str, config: dict, session: AgentSession):
         if gen_req and gen_req.get("type") == "generation_request":
             yield _format_sse("generation_start", {})
             llm = create_llm_provider()
-            llm.set_gen_id(gen_id)  # 绑定 gen_id 支持底层取消
+            llm.set_gen_id(gen_id)
             full_text = ""
             async for chunk in llm.chat_stream(
                 [{"role": "system", "content": gen_req["system"]}, {"role": "user", "content": gen_req["user"]}],
@@ -106,6 +106,26 @@ async def _interrupt_loop(gen_id: str, config: dict, session: AgentSession):
                 yield _format_sse("token", {"token": chunk})
             yield _format_sse("generation_done", {})
             continue_writing_graph.update_state(config, {"generated_text": full_text}, as_node="content_generation")
+            continue
+
+        # MCP tool: ReAct loop with function calling
+        mcp_req = _get_interrupt_value(current_state, "mcp_tool")
+        if mcp_req and mcp_req.get("type") == "mcp_tool_call":
+            messages = _json_mod.loads(mcp_req["messages_json"])
+            tools = mcp_req.get("tools", []) or []
+            logger.info("MCP tool call with %d message(s) and %d tool(s)", len(messages), len(tools))
+            llm = create_llm_provider()
+            llm.set_gen_id(gen_id)
+            result = await llm.chat_with_tools(
+                messages=messages,
+                tools=tools if tools else None,
+                temperature=0.3,
+                max_tokens=4096,
+            )
+            continue_writing_graph.update_state(
+                config, {"result_json": _json_mod.dumps(result, ensure_ascii=False)},
+                as_node="mcp_tool",
+            )
             continue
 
         judgment = _get_interrupt_value(current_state, "content_judge")
@@ -124,7 +144,6 @@ async def _interrupt_loop(gen_id: str, config: dict, session: AgentSession):
 
     session.set_step("complete")
     yield _format_sse("complete", {"message": "Generation finished"})
-
 
 async def prepare_generation(novel_id: str) -> dict:
     from backend.config import DB_PATH
@@ -208,10 +227,10 @@ async def run_generation(novel_id: str, body: GenerationRunRequest):
         "outline": "", "detailed_outline": "", "cursor_position": 0,
         "plot_nodes_count": 0, "next_node_title": "", "main_character_design": "",
         "foreshadow": "", "context": "", "generated_text": "", "chapter_titles": [],
-        "character_states_json": "", "_saved_chapters": [], "_cancelled": False,
+        "character_states_json": "", "mcp_results": [], "mcp_context": "",
+        "_saved_chapters": [], "_cancelled": False,
     }
 
-    # 先在 cancellation 中注册，让 provider 能拿到 asyncio.Event
     cancellation.register(gen_id)
 
     async def event_stream():
@@ -243,7 +262,6 @@ async def submit_judgment(gen_id: str, body: JudgeRequest):
     config = {"configurable": {"thread_id": gen_id}}
     judgment_payload = {"action": body.action, "text": body.text}
 
-    # 注册或重新注册（可能被以前的 unregister 清掉了）
     cancellation.register(gen_id)
 
     async def judge_event_stream():
@@ -260,7 +278,7 @@ async def submit_judgment(gen_id: str, body: JudgeRequest):
             logger.exception("submit_judgment SSE error for %s", gen_id)
             if not cancellation.is_cancelled(gen_id):
                 session.set_error(str(e))
-                yield _format_sse("error", {"error": str(e)})
+                yield _format_sse("error", {"error": str(e)}) 
         finally:
             cancellation.unregister(gen_id)
 
@@ -284,3 +302,8 @@ async def get_generation_status(gen_id: str):
     if not session:
         return {"success": False, "error": "Generation not found"}
     return {"success": True, **session.to_dict()}
+
+
+
+
+

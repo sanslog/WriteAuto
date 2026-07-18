@@ -1,4 +1,4 @@
-import json
+﻿import json
 import logging
 
 from langgraph.types import interrupt
@@ -101,6 +101,8 @@ async def content_judge_node(state: State) -> dict:
         "generated_text": state["generated_text"],
         "chapter_titles": state["chapter_titles"],
         "character_states_json": state["character_states_json"],
+        "mcp_results": state.get("mcp_results", []),
+        "mcp_context": state.get("mcp_context", ""),
         "modification_count": state.get("modification_count", 0),
     })
 
@@ -121,3 +123,5 @@ async def content_judge_node(state: State) -> dict:
         if action != "approve":
             await _mark_as_discarded(state)
         return {"should_end": True, "enter_loop": False}
+
+

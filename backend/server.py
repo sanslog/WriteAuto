@@ -1,4 +1,4 @@
-import sys
+﻿import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse
 from backend.api.crud import router as crud_router
 from backend.api.common import router as common
 from backend.api.generation import router as generation_router
+from backend.mcp.router import router as mcp_router
 from backend.config import RUN_DIRECT, load_llm_config
 
 if RUN_DIRECT:
@@ -39,6 +40,7 @@ def create_app() -> FastAPI:
     app.include_router(crud_router)
     app.include_router(common)
     app.include_router(generation_router)
+    app.include_router(mcp_router)
 
     @app.get("/api/health")
     async def health():
@@ -57,3 +59,4 @@ def create_app() -> FastAPI:
             return FileResponse(FRONTEND_DIST / "index.html")
 
     return app
+

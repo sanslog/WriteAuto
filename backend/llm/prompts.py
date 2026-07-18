@@ -28,7 +28,7 @@ def build_generation_prompt(
 你必须严格遵守以上设定进行创作。"""
 
     # 用户部分
-    user_parts = []
+    user_parts = ["\n\n"]
 
     if outline:
         user_parts.append(f"【大纲】\n{outline}")
@@ -63,7 +63,7 @@ def build_generation_prompt(
         "\n7.修改模式下，【已写内容】决定章节序号，【上次生成的内容】不参与序号计算，请勿混淆。" if previous_generated_text else ""
     )
 
-    return system, "\n\n".join(user_parts)
+    return system, user_parts
 
 def build_legality_check_prompt(content: str) -> str:
     system = "你是一位内容审核专家。请判断给定的小说内容是否包含违规内容。"

@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 import { computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useSettingsStore } from '../../stores/settings'
@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   ChevronRight,
   BookOpen,
+  Server,
   Settings,
 } from 'lucide-vue-next'
 
@@ -16,7 +17,7 @@ const isCollapsed = computed(() => settings.sidebarCollapsed)
 
 // Auto-collapse sidebar when entering a novel detail page
 watch(() => route.path, (path) => {
-  if (path.startsWith('/novel/')) {
+  if (path.startsWith("/novel/")) {
     settings.setSidebarCollapsed(true)
   }
 })
@@ -29,7 +30,11 @@ watch(() => route.path, (path) => {
         <BookOpen :size="20" class="brand-icon" />
         <span v-show="!isCollapsed" class="brand-text">WriteAuto</span>
       </router-link>
-      <button class="btn-icon collapse-btn" @click="settings.toggleSidebar()" :title="isCollapsed ? '展开' : '收起'">
+      <button
+        class="btn-icon collapse-btn"
+        @click="settings.toggleSidebar()"
+        :title="isCollapsed ? '展开' : '收起'"
+      >
         <ChevronLeft v-if="!isCollapsed" :size="18" />
         <ChevronRight v-else :size="18" />
       </button>
@@ -45,6 +50,16 @@ watch(() => route.path, (path) => {
       >
         <BookOpen :size="18" />
         <span v-show="!isCollapsed">作品列表</span>
+      </router-link>
+
+      <router-link
+        to="/mcp"
+        class="nav-item"
+        active-class="active"
+        :class="{ 'nav-icon-only': isCollapsed }"
+      >
+        <Server :size="18" />
+        <span v-show="!isCollapsed">MCP 服务</span>
       </router-link>
 
       <div class="nav-spacer" />
@@ -122,8 +137,6 @@ watch(() => route.path, (path) => {
   margin: 0 auto;
 }
 
-
-
 .nav-spacer {
   flex: 1;
 }
@@ -159,7 +172,7 @@ watch(() => route.path, (path) => {
   color: #fff;
 }
 
-/* Collapsed state — icons centered */
+/* Collapsed state - icons centered */
 .nav-icon-only {
   justify-content: center;
   padding: 10px;
