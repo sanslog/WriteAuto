@@ -1,4 +1,4 @@
-import json
+﻿import json
 import logging
 import re
 import uuid
@@ -93,6 +93,7 @@ async def content_generation_node(state: State) -> dict:
         user_input_text=state.get("user_input_text", ""),
         enter_loop=state.get("enter_loop", False),
         previous_generated_text=state.get("generated_text", ""),
+        mcp_context=state.get("mcp_context", ""),
     )
 
     # ── Pause: hand prompt to API layer for streaming LLM call ──

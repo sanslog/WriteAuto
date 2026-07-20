@@ -1,4 +1,4 @@
-def build_generation_prompt(
+﻿def build_generation_prompt(
     base_prompt: str,
     style_of_writing: str,
     world_outlook: str,
@@ -11,6 +11,7 @@ def build_generation_prompt(
     user_input_text: str = "",
     enter_loop: bool = False,
     previous_generated_text: str = "",
+    mcp_context: str = "",
 ) -> tuple[str, str]:
     # 系统提示词
     system = f"""你是一位专业的小说作家。请根据以下设定创作小说内容。
@@ -48,9 +49,12 @@ def build_generation_prompt(
     if context:
         user_parts.append(f"【已写内容】\n{context}")
 
+    if mcp_context:
+        user_parts.append(f"【外部参考资料】\n以下是通过工具查询到的外部信息（如地理、历史、文化等），可供参考：\n{mcp_context}")
+
     if enter_loop and user_input_text and previous_generated_text:
         user_parts.append(f"【修改意见】#请根据以下意见重新修改上次生成内容:\n{user_input_text}")
-        user_parts.append(f"【修改意见】#上次生成的内容:\n{('（前文省略）......'+previous_generated_text[:4000]) if len(previous_generated_text)>4000 else previous_generated_text}")
+        user_parts.append(f"【上次生成的内容】#需要修改的文本:\n{('（前文省略）......'+previous_generated_text[:4000]) if len(previous_generated_text)>4000 else previous_generated_text}")
 
     user_parts.append(
         "\n要求："
@@ -60,10 +64,11 @@ def build_generation_prompt(
         "\n4.章节序号延续【已写内容】中最后一章的编号。若已写内容为空，则从第一章开始。"
         "\n5.仅输出纯文本正文，不要添加任何额外说明、注释或评语。"
         "\n6.请确保输出第一行是'第X章 章节名'，确保输出文本中有章节号和章节名。"
-        "\n7.修改模式下，【已写内容】决定章节序号，【上次生成的内容】不参与序号计算，请勿混淆。" if previous_generated_text else ""
+        "\n7.修改模式下，【已写内容】决定章节序号，【上次生成的内容】不参与序号计算，请勿混淆。"
     )
 
-    return system, user_parts
+    return system, "\n".join(user_parts)
+
 
 def build_legality_check_prompt(content: str) -> str:
     system = "你是一位内容审核专家。请判断给定的小说内容是否包含违规内容。"

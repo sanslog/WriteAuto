@@ -1,14 +1,15 @@
-﻿"""Production-grade MCP tool node with native function calling + ReAct loop.
+﻿"""Pre-generation MCP tool node with native function calling + ReAct loop.
 
-Placed between content_generation and content_judge.
+Placed between injection_foreshadow and content_generation.
 
 Flow:
-1. Convert registered MCP tools into OpenAI-compatible tools[] format
-2. Pass to LLM via chat_with_tools() — model decides if/which tool to call
-3. If tool_calls returned → execute each tool → feed result back as observation
-4. Repeat step 2-3 (max 5 rounds, ReAct style)
-5. When LLM responds with text (or max rounds reached) → summarise
-6. Tool results + summary stored in mcp_results + mcp_context (fed back to generation)
+1. Receive writing context (outline, world setting, character design, etc.)
+2. Convert registered MCP tools into OpenAI-compatible tools[] format
+3. Pass to LLM via chat_with_tools() — model decides if/which tool to call
+4. If tool_calls returned → execute each tool → feed result back as observation
+5. Repeat step 3-4 (max 5 rounds, ReAct style)
+6. When LLM responds with text (or max rounds reached) → summarise
+7. Tool results + summary stored in mcp_results + mcp_context (fed into generation prompt)
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ from typing import Any
 
 from backend.agent.state import State
 from backend.mcp.service import list_services, execute_tool
-from backend.config import LLM_GENERATION_MAX_TOKENS
+from backend.mcp.prompts import build_mcp_tool_system_prompt, build_mcp_tool_user_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -55,76 +56,70 @@ def _parse_tool_name(full_name: str) -> tuple[str, str]:
 
 
 async def mcp_tool_node(state: State) -> dict[str, Any]:
-    """Production ReAct tool node.
+    """Pre-generation MCP tool node — enrich generation context before content generation.
+
+    Reads the current writing context (outline, world setting, characters, etc.)
+    and decides whether any external MCP tools should be called. Tool results
+    are formatted into mcp_context, which is injected into the generation prompt.
 
     Returns:
         mcp_results: list of tool execution results
-        mcp_context: formatted tool result text for injection into next generation
+        mcp_context: formatted tool result text for injection into generation prompt
     """
     if state.get("_cancelled"):
-        return {"mcp_results": [], "mcp_context": ""}
-
-    generated_text = state.get("generated_text", "")
-    if not generated_text:
+        logger.debug("MCP node skipping — generation cancelled")
         return {"mcp_results": [], "mcp_context": ""}
 
     services = list_services()
     enabled = [s for s in services if s.get("enabled", True)]
     if not enabled:
+        logger.debug("MCP node skipping — no enabled services")
         return {"mcp_results": [], "mcp_context": ""}
 
     openai_tools = _mcp_tools_to_openai_tools(enabled)
     if not openai_tools:
+        logger.debug("MCP node skipping — no tools from enabled services")
         return {"mcp_results": [], "mcp_context": ""}
 
-    logger.info("MCP ReAct starting with %d tool(s) available", len(openai_tools))
-
-    # ── System prompt for the tool-using agent ──
-    system = (
-        "You are a research assistant integrated into a novel-writing system. "
-        "You have access to external tools that can fetch real-world information, "
-        "check facts, or enrich the generated novel content.\n\n"
-        "Guidelines:\n"
-        "- Only call tools when the text genuinely needs external data.\n"
-        "- If you call a tool, wait for the result and decide if more info is needed.\n"
-        "- When you have enough information (or none is needed), summarise briefly.\n"
-        "- Respond in the same language as the novel text."
+    logger.info(
+        "MCP ReAct starting with %d tool(s) from %d service(s)",
+        len(openai_tools),
+        len(enabled),
     )
+
+    # ── Prompts from prompts.py ──
+    system = build_mcp_tool_system_prompt()
+    user = build_mcp_tool_user_prompt(dict(state))
 
     # ── ReAct loop ──
     messages: list[dict] = [
         {"role": "system", "content": system},
-        {
-            "role": "user",
-            "content": (
-                f"Here is the generated novel text (last 4000 chars):\n"
-                f"{generated_text[-4000:]}\n\n"
-                f"Chapter titles: {json.dumps(state.get('chapter_titles', []), ensure_ascii=False)}\n"
-                f"Novel context: {state.get('context', '')[:1500]}\n\n"
-                "Decide if any external tool needs to be called to enrich this content. "
-                "If yes, use the appropriate tool. If not, just respond with 'No tools needed.'"
-            ),
-        },
+        {"role": "user", "content": user},
     ]
 
     all_results: list[dict] = []
 
     for _round in range(_MAX_REACT_ROUNDS):
-        # LLM decides: text response or tool call
         decision = await _call_llm_with_tools(messages, openai_tools)
 
         if decision["type"] == "text":
-            # LLM says done
             conclusion = decision["content"]
-            logger.info("MCP ReAct finished at round %d: %s", _round + 1, conclusion[:100])
+            logger.info(
+                "MCP ReAct finished at round %d: %s",
+                _round + 1,
+                conclusion[:120],
+            )
             messages.append({"role": "assistant", "content": conclusion})
             break
 
         # LLM wants to call tools
         tool_calls = decision["calls"]
-        logger.info("MCP ReAct round %d: %d tool call(s)", _round + 1, len(tool_calls))
+        logger.info(
+            "MCP ReAct round %d: %d tool call(s)",
+            _round + 1,
+            len(tool_calls),
+        )
 
-        # Build assistant message with tool_calls
         assistant_msg: dict[str, Any] = {"role": "assistant", "content": None}
         openai_tool_calls = []
         for tc in tool_calls:
@@ -139,13 +134,12 @@ async def mcp_tool_node(state: State) -> dict[str, Any]:
         assistant_msg["tool_calls"] = openai_tool_calls
         messages.append(assistant_msg)
 
-        # Execute each tool call
         for tc in tool_calls:
             service_id, tool_name = _parse_tool_name(tc["function"]["name"])
             arguments = tc["function"]["arguments"]
             tool_call_id = tc["id"]
 
-            logger.info("Executing tool: %s/%s", service_id, tool_name)
+            logger.info("Executing tool: %s/%s with args: %s", service_id, tool_name, arguments)
 
             if not service_id or not tool_name:
                 result_text = f"Error: unknown tool '{tc['function']['name']}'"
@@ -159,7 +153,6 @@ async def mcp_tool_node(state: State) -> dict[str, Any]:
                     result_text = f"Error: {exc}"
                     success = False
 
-            # Truncate long results
             if len(result_text) > _MAX_TOOL_RESULT_CHARS:
                 result_text = result_text[:_MAX_TOOL_RESULT_CHARS] + "\n... (truncated)"
 
@@ -171,29 +164,40 @@ async def mcp_tool_node(state: State) -> dict[str, Any]:
                 "success": success,
             })
 
-            # Feed observation back
             messages.append({
                 "role": "tool",
                 "tool_call_id": tool_call_id,
                 "content": result_text,
             })
     else:
-        # Max rounds reached
-        logger.warning("MCP ReAct reached max %d rounds, forcing conclusion", _MAX_REACT_ROUNDS)
-        messages.append({"role": "user", "content": "Summarise what you found from the tools above."})
+        logger.warning(
+            "MCP ReAct reached max %d rounds, forcing conclusion",
+            _MAX_REACT_ROUNDS,
+        )
+        messages.append({
+            "role": "user",
+            "content": "Summarise what you found from the tools above.",
+        })
 
-    # ── Build mcp_context for injection back into next generation ──
+    # ── Build mcp_context for injection into generation prompt ──
     if all_results:
         context_parts = ["=== MCP Tool Results ==="]
         for r in all_results:
             status = "OK" if r["success"] else "FAILED"
-            context_parts.append(f"[{status}] {r['service_id']}/{r['tool_name']}: {r['result'][:500]}")
+            context_parts.append(
+                f"[{status}] {r['service_id']}/{r['tool_name']}: {r['result'][:500]}"
+            )
         context_parts.append("=== End MCP Results ===")
         mcp_context = "\n\n".join(context_parts)
+        logger.info(
+            "MCP tool node complete: %d tool(s) executed, mcp_context length=%d",
+            len(all_results),
+            len(mcp_context),
+        )
     else:
         mcp_context = ""
+        logger.info("MCP tool node complete: no tools called")
 
-    logger.info("MCP tool node complete: %d tool(s) executed", len(all_results))
     return {"mcp_results": all_results, "mcp_context": mcp_context}
 
 
@@ -203,12 +207,10 @@ async def _call_llm_with_tools(
 ) -> dict[str, Any]:
     """Make an interrupt-based LLM call with tools.
 
-    This uses the same interrupt/update_state pattern as the rest of the codebase.
-    The actual LLM API call happens in generation.py's interrupt loop.
+    Uses the same interrupt/update_state pattern as content_generation node.
     """
     from langgraph.types import interrupt
 
-    # Serialise messages for transport through interrupt
     serialised = json.dumps(messages, ensure_ascii=False, default=str)
 
     resume = interrupt({

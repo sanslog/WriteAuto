@@ -45,8 +45,8 @@ def build_graph() -> CompiledStateGraph:
     builder.add_node("character_fetch", character_fetch_node)
     builder.add_node("injection_context", injection_context_node)
     builder.add_node("injection_foreshadow", injection_foreshadow_node)
-    builder.add_node("content_generation", content_generation_node)
     builder.add_node("mcp_tool", mcp_tool_node)
+    builder.add_node("content_generation", content_generation_node)
     builder.add_node("content_judge", content_judge_node)
     builder.add_node("modify_loop", modify_loop_node)
 
@@ -60,9 +60,10 @@ def build_graph() -> CompiledStateGraph:
     )
 
     builder.add_edge("injection_context", "injection_foreshadow")
-    builder.add_edge("injection_foreshadow", "content_generation")
-    builder.add_edge("content_generation", "mcp_tool")
-    builder.add_edge("mcp_tool", "content_judge")
+    # MCP enrichment happens BEFORE generation
+    builder.add_edge("injection_foreshadow", "mcp_tool")
+    builder.add_edge("mcp_tool", "content_generation")
+    builder.add_edge("content_generation", "content_judge")
 
     builder.add_conditional_edges(
         "content_judge",
@@ -70,9 +71,12 @@ def build_graph() -> CompiledStateGraph:
         {"modify_loop": "modify_loop", END: END},
     )
 
-    builder.add_edge("modify_loop", "content_generation")
+    # On modify loop: re-run MCP to re-evaluate context with new user input
+    builder.add_edge("modify_loop", "mcp_tool")
 
-    logger.info("Generation graph built with single MCP tool node")
+    logger.info(
+        "Generation graph built with MCP tool node BEFORE content_generation"
+    )
     return builder.compile(checkpointer=checkpointer)
 
 
