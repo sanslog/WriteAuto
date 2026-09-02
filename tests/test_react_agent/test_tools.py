@@ -4,6 +4,9 @@ import logging
 
 import pytest
 
+from backend.config import DB_PATH
+from backend.db.database import Database
+from backend.db.repos import CharacterRepo, ForeshadowRepo, NovelRepo, PlotNodeRepo
 from backend.react_agent.tools import (
     AgentTool,
     ToolCategory,
@@ -13,7 +16,7 @@ from backend.react_agent.tools import (
     get_all_tools,
     get_tools_by_category,
 )
-from backend.react_agent.tools.character import create_character
+from backend.react_agent.tools.character import create_character, search_characters
 from backend.react_agent.tools.chapter import (
     create_chapter,
     delete_chapter,
@@ -21,12 +24,15 @@ from backend.react_agent.tools.chapter import (
 )
 from backend.react_agent.tools.foreshadow import (
     create_foreshadow,
+    search_foreshadows,
     update_foreshadow,
 )
 from backend.react_agent.tools.novel import create_novel, delete_novel, get_novel
 from backend.react_agent.tools.outline import (
+    complete_current_plot_node,
     create_plot_node,
     delete_plot_node,
+    get_writing_context,
     move_plot_cursor,
 )
 from backend.react_agent.tools.settings import get_settings, update_settings
@@ -171,6 +177,91 @@ async def test_delete_plot_node_corrects_cursor(temp_db):
 
     assert deleted["success"] is True
     assert deleted["data"]["cursor_position"] == 1
+
+
+@pytest.mark.asyncio
+async def test_character_and_foreshadow_search(temp_db):
+    novel = await create_novel(title="搜索测试")
+    novel_id = novel["data"]["id"]
+    await create_character(novel_id, name="林昭", description="主角")
+    await create_character(novel_id, name="林昭儿", description="妹妹")
+    await create_foreshadow(novel_id, title="断剑", description="断剑认主")
+
+    exact = await search_characters(novel_id=novel_id, name="林昭", exact=True)
+    fuzzy = await search_characters(novel_id=novel_id, name="昭儿")
+    foreshadows = await search_foreshadows(novel_id=novel_id, keyword="认主")
+
+    assert [item["name"] for item in exact["data"]] == ["林昭"]
+    assert [item["name"] for item in fuzzy["data"]] == ["林昭儿"]
+    assert foreshadows["data"][0]["title"] == "断剑"
+
+
+@pytest.mark.asyncio
+async def test_complete_current_plot_node_persists_cursor_and_memory(temp_db):
+    novel = await create_novel(title="节点完成测试")
+    novel_id = novel["data"]["id"]
+    await create_plot_node(novel_id=novel_id, title="开端")
+    await create_plot_node(novel_id=novel_id, title="结局")
+    character = await create_character(novel_id=novel_id, name="沈临")
+    foreshadow = await create_foreshadow(novel_id=novel_id, title="铜铃")
+    chapter = await create_chapter(
+        novel_id=novel_id,
+        title="第一章 铜铃",
+        content="沈临听见铜铃响了一声。",
+    )
+
+    before = await get_writing_context(novel_id=novel_id)
+    assert before["data"]["cursor_position"] == 0
+    assert before["data"]["current_node"]["title"] == "开端"
+
+    completed = await complete_current_plot_node(
+        novel_id=novel_id,
+        chapter_id=chapter["data"]["id"],
+        character_states=[
+            {
+                "name": "沈临",
+                "state": "离开旧宅",
+                "location": "城南",
+                "status_condition": "左臂受伤",
+            }
+        ],
+        resolved_foreshadow_ids=[foreshadow["data"]["id"]],
+    )
+    assert completed["success"] is True
+    assert completed["data"]["cursor_position"] == 1
+    assert completed["data"]["outline_complete"] is False
+
+    final_chapter = await create_chapter(
+        novel_id=novel_id,
+        title="第二章 归途",
+        content="沈临在城门口停下脚步。",
+    )
+    final = await complete_current_plot_node(
+        novel_id=novel_id,
+        chapter_id=final_chapter["data"]["id"],
+        character_states=[],
+        resolved_foreshadow_ids=[],
+    )
+    assert final["data"]["outline_complete"] is True
+    assert final["data"]["cursor_position"] == 1
+
+    db = Database(DB_PATH)
+    await db.init()
+    try:
+        novel_data = await NovelRepo(db).get(novel_id)
+        nodes = await PlotNodeRepo(db).get_by_novel(novel_id)
+        states = await CharacterRepo(db).get_states(character["data"]["id"])
+        foreshadows = await ForeshadowRepo(db).get_by_novel(novel_id)
+    finally:
+        await db.close()
+
+    assert novel_data["cursor_position"] == 1
+    assert novel_data["is_done"] == 1
+    assert nodes[0]["status"] == "written"
+    assert nodes[0]["chapter_id"] == chapter["data"]["id"]
+    assert nodes[1]["chapter_id"] == final_chapter["data"]["id"]
+    assert states[0]["chapter_id"] == chapter["data"]["id"]
+    assert foreshadows[0]["status"] == "resolved"
 
 
 @pytest.mark.asyncio

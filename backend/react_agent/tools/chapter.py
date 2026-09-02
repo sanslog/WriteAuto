@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Optional
 
 from pydantic import Field
@@ -9,6 +10,7 @@ from pydantic import Field
 from backend.db.dependencies import db_session
 from backend.db.repos import ChapterRepo, NovelRepo
 from backend.react_agent.tools.base import ToolCallError, ToolInput
+from backend.storage.file_manager import FileManager
 
 
 class ListChaptersInput(ToolInput):
@@ -81,6 +83,12 @@ async def create_chapter(
                 "generation_id": generation_id,
             }
         )
+        file_path = FileManager.chapters_dir(novel_id) / f"{chapter['id']}.md"
+        file_path.write_text(content, encoding="utf-8")
+        chapter = await chapter_repo.update(
+            chapter["id"],
+            {"file_path": str(file_path)},
+        )
     return {"success": True, "data": chapter}
 
 
@@ -113,6 +121,15 @@ async def update_chapter(
         chapter = await repo.update(chapter_id, fields)
         if not chapter:
             raise ToolCallError(f"Chapter {chapter_id} not found")
+        if "content" in fields:
+            file_path = (
+                Path(chapter["file_path"])
+                if chapter.get("file_path")
+                else FileManager.chapter_path(chapter["novel_id"], chapter["id"])
+            )
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            file_path.write_text(fields["content"], encoding="utf-8")
+            chapter = await repo.update(chapter_id, {"file_path": str(file_path)})
     return {"success": True, "data": chapter}
 
 
@@ -123,4 +140,3 @@ async def delete_chapter(chapter_id: str) -> dict:
             raise ToolCallError(f"Chapter {chapter_id} not found")
         await repo.delete(chapter_id)
     return {"success": True, "data": {"id": chapter_id, "deleted": True}}
-

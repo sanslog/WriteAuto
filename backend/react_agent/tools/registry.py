@@ -19,8 +19,13 @@ from backend.react_agent.tools.chapter import (
 )
 from backend.react_agent.tools.character import (
     CharacterIdInput,
+    CharacterStateEntry,
     CreateCharacterInput,
     ListCharactersInput,
+    RecordCharacterStatesInput,
+    SearchCharactersInput,
+    record_character_states,
+    search_characters,
     UpdateCharacterInput,
     create_character,
     delete_character,
@@ -31,6 +36,8 @@ from backend.react_agent.tools.foreshadow import (
     CreateForeshadowInput,
     ForeshadowIdInput,
     ListForeshadowsInput,
+    SearchForeshadowsInput,
+    search_foreshadows,
     UpdateForeshadowInput,
     create_foreshadow,
     delete_foreshadow,
@@ -49,10 +56,13 @@ from backend.react_agent.tools.novel import (
     update_novel,
 )
 from backend.react_agent.tools.outline import (
+    CompletePlotNodeInput,
     CreatePlotNodeInput,
     DeletePlotNodeInput,
     MoveCursorInput,
     NovelIdInput as OutlineNovelIdInput,
+    complete_current_plot_node,
+    get_writing_context,
     UpdatePlotNodeInput,
     create_plot_node,
     delete_plot_node,
@@ -141,6 +151,14 @@ ALL_TOOLS: tuple[AgentTool, ...] = (
         read_only=True,
     ),
     _tool(
+        "get_writing_context",
+        "读取当前剧情游标、当前节点细纲、下一节点、最近章节和长期记忆。",
+        ToolCategory.OUTLINE,
+        OutlineNovelIdInput,
+        get_writing_context,
+        read_only=True,
+    ),
+    _tool(
         "create_plot_node",
         "新增剧情大纲节点，用于规划后续章节情节。",
         ToolCategory.OUTLINE,
@@ -160,6 +178,13 @@ ALL_TOOLS: tuple[AgentTool, ...] = (
         ToolCategory.OUTLINE,
         MoveCursorInput,
         move_plot_cursor,
+    ),
+    _tool(
+        "complete_current_plot_node",
+        "把已保存章节归档到当前剧情节点，持久化角色状态与伏笔回收，并推进游标。",
+        ToolCategory.OUTLINE,
+        CompletePlotNodeInput,
+        complete_current_plot_node,
     ),
     _tool(
         "delete_plot_node",
@@ -218,6 +243,14 @@ ALL_TOOLS: tuple[AgentTool, ...] = (
         read_only=True,
     ),
     _tool(
+        "search_characters",
+        "按角色名称搜索档案；exact 为 true 时执行精确匹配。",
+        ToolCategory.CHARACTER,
+        SearchCharactersInput,
+        search_characters,
+        read_only=True,
+    ),
+    _tool(
         "create_character",
         "新增角色档案，记录性格、背景和叙事定位。",
         ToolCategory.CHARACTER,
@@ -230,6 +263,13 @@ ALL_TOOLS: tuple[AgentTool, ...] = (
         ToolCategory.CHARACTER,
         CharacterIdInput,
         update_character,
+    ),
+    _tool(
+        "record_character_states",
+        "按角色名保存一个章节结束时的长期状态快照。",
+        ToolCategory.CHARACTER,
+        RecordCharacterStatesInput,
+        record_character_states,
     ),
     _tool(
         "delete_character",
@@ -246,6 +286,14 @@ ALL_TOOLS: tuple[AgentTool, ...] = (
         ToolCategory.FORESHADOW,
         ListForeshadowsInput,
         list_foreshadows,
+        read_only=True,
+    ),
+    _tool(
+        "search_foreshadows",
+        "按标题或内容关键词搜索伏笔，可按状态过滤。",
+        ToolCategory.FORESHADOW,
+        SearchForeshadowsInput,
+        search_foreshadows,
         read_only=True,
     ),
     _tool(

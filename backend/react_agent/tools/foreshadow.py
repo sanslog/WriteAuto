@@ -15,6 +15,12 @@ class ListForeshadowsInput(ToolInput):
     novel_id: str = Field(min_length=1, description="小说项目 ID")
 
 
+class SearchForeshadowsInput(ToolInput):
+    novel_id: str = Field(min_length=1, description="小说项目 ID")
+    keyword: str = Field(min_length=1, description="伏笔标题或内容关键词")
+    status: Optional[str] = Field(default=None, description="unused / resolved")
+
+
 class ForeshadowIdInput(ToolInput):
     foreshadow_id: str = Field(min_length=1)
 
@@ -38,6 +44,28 @@ async def list_foreshadows(novel_id: str) -> dict:
     async with db_session() as db:
         foreshadows = await ForeshadowRepo(db).get_by_novel(novel_id)
     return {"success": True, "data": foreshadows}
+
+
+async def search_foreshadows(
+    novel_id: str,
+    keyword: str,
+    status: Optional[str] = None,
+) -> dict:
+    """Find a named plot setup or an unresolved thread by keyword."""
+
+    async with db_session() as db:
+        foreshadows = await ForeshadowRepo(db).get_by_novel(novel_id)
+
+    lowered = keyword.lower()
+    matched = [
+        item
+        for item in foreshadows
+        if lowered in str(item.get("title", "")).lower()
+        or lowered in str(item.get("description", "")).lower()
+    ]
+    if status:
+        matched = [item for item in matched if item.get("status") == status]
+    return {"success": True, "data": matched}
 
 
 async def create_foreshadow(
@@ -94,4 +122,3 @@ async def delete_foreshadow(foreshadow_id: str) -> dict:
             raise ToolCallError(f"Foreshadow {foreshadow_id} not found")
         await repo.delete(foreshadow_id)
     return {"success": True, "data": {"id": foreshadow_id, "deleted": True}}
-
