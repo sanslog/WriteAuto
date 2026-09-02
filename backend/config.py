@@ -1,4 +1,4 @@
-import os
+﻿import os
 import sys
 from pathlib import Path
 
@@ -21,6 +21,9 @@ def _default_data_dir() -> Path:
 DATA_DIR = Path(os.getenv("WRITEAUTO_DATA_DIR", _default_data_dir()))
 NOVELS_DIR = DATA_DIR / "novels"
 DB_PATH = Path(os.getenv("WRITEAUTO_DB_PATH", DATA_DIR / "writeauto.db"))
+
+# Logging
+LOG_DIR = DATA_DIR / "logs"
 
 # LLM configuration (defaults — overridden from DB via load_llm_config())
 LLM_PROVIDER = "openai"

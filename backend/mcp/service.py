@@ -1,4 +1,4 @@
-﻿"""MCP service manager with SSE transport.
+﻿"""MCP service manager with SSE transport — with retry, structured error logging.
 
 Connects to MCP servers via HTTP SSE endpoints using the standard MCP
 JSON-RPC protocol over JSON-RPC/SSE transport.
@@ -13,6 +13,7 @@ Each MCP service has:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import uuid
@@ -29,6 +30,11 @@ logger = logging.getLogger(__name__)
 
 MCP_CONFIGS_DIR = DATA_DIR / "mcp_configs"
 _MCP_REQUEST_TIMEOUT = 30
+
+# ── Retry configuration ──
+_MAX_RETRIES = 3
+_BASE_DELAY_SEC = 1.0
+_MAX_DELAY_SEC = 10.0
 
 
 def _ensure_config_dir():
@@ -88,7 +94,34 @@ def delete_service(service_id: str) -> bool:
     return True
 
 
-# ── SSE Transport ────────────────────────────────────────────────
+# ── Retry helper ────────────────────────────────────────────────
+
+
+def _classify_error(exc: Exception) -> str:
+    """Classify an exception into a human-readable error category.
+
+    Used to produce structured error feedback that the LLM can
+    understand and potentially adjust its tool-calling behaviour.
+    """
+    if isinstance(exc, httpx.TimeoutException):
+        return "TIMEOUT"
+    elif isinstance(exc, httpx.ConnectError):
+        return "CONNECTION_REFUSED"
+    elif isinstance(exc, httpx.HTTPStatusError):
+        return f"HTTP_{exc.response.status_code}"
+    elif isinstance(exc, httpx.RequestError):
+        return "NETWORK_ERROR"
+    elif isinstance(exc, json.JSONDecodeError):
+        return "INVALID_RESPONSE_JSON"
+    else:
+        return "UNKNOWN"
+
+
+def _is_retryable(error_category: str) -> bool:
+    """Decide whether an error category is worth retrying."""
+    retryable = {"TIMEOUT", "CONNECTION_REFUSED", "NETWORK_ERROR",
+                 "HTTP_429", "HTTP_500", "HTTP_502", "HTTP_503", "HTTP_504"}
+    return error_category in retryable
 
 
 async def _json_rpc_call(
@@ -97,7 +130,8 @@ async def _json_rpc_call(
     params: dict[str, Any] | None = None,
     timeout: int = _MCP_REQUEST_TIMEOUT,
 ) -> dict[str, Any]:
-    """Make a JSON-RPC call to an MCP SSE endpoint via HTTP POST.
+    """Make a JSON-RPC call to an MCP SSE endpoint via HTTP POST,
+    with exponential backoff retry for retryable errors.
 
     The MCP SSE transport uses a regular HTTP POST endpoint for
     sending JSON-RPC requests. The endpoint URL is the same as the
@@ -111,18 +145,61 @@ async def _json_rpc_call(
     if params is not None:
         payload["params"] = params
 
-    logger.debug("JSON-RPC POST %s: %s", url, method)
+    last_error: Exception | None = None
+    last_error_category: str = "UNKNOWN"
+    attempt = 0
 
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        resp = await client.post(url, json=payload)
-        resp.raise_for_status()
-        data = resp.json()
+    while attempt < _MAX_RETRIES:
+        attempt += 1
+        if attempt > 1:
+            delay = min(_BASE_DELAY_SEC * (2 ** (attempt - 2)), _MAX_DELAY_SEC)
+            logger.info(
+                "Retry %d/%d for %s %s after %.1fs (previous: %s)",
+                attempt, _MAX_RETRIES, method, url, delay, last_error_category,
+            )
+            await asyncio.sleep(delay)
 
-    if "error" in data and data["error"] is not None:
-        err_msg = data["error"].get("message", str(data["error"]))
-        raise RuntimeError(f"MCP server error: {err_msg}")
+        try:
+            logger.debug("JSON-RPC POST %s (attempt %d/%d): %s", url, attempt, _MAX_RETRIES, method)
 
-    return data
+            async with httpx.AsyncClient(timeout=httpx.Timeout(timeout)) as client:
+                resp = await client.post(url, json=payload)
+                resp.raise_for_status()
+                data = resp.json()
+
+            if "error" in data and data["error"] is not None:
+                err_msg = data["error"].get("message", str(data["error"]))
+                err_code = data["error"].get("code", "")
+                raise RuntimeError(
+                    f"MCP server returned error: code={err_code}, message={err_msg}"
+                )
+
+            # Success
+            if attempt > 1:
+                logger.info("Retry %d/%d succeeded for %s %s", attempt, _MAX_RETRIES, method, url)
+            return data
+
+        except Exception as exc:
+            last_error = exc
+            last_error_category = _classify_error(exc)
+            # Log the structured detail on every failure
+            logger.warning(
+                "MCP call failed (attempt %d/%d): method=%s url=%s category=%s detail=%s",
+                attempt, _MAX_RETRIES, method, url, last_error_category, exc,
+            )
+
+            if not _is_retryable(last_error_category):
+                logger.info(
+                    "Non-retryable error category %s, giving up immediately",
+                    last_error_category,
+                )
+                break
+
+    # All retries exhausted
+    raise last_error  # type: ignore[misc]
+
+
+# ── Tool discovery & execution ──────────────────────────────────
 
 
 async def discover_tools(service_id: str) -> list[MCPTool]:
@@ -151,7 +228,21 @@ async def execute_tool(
     arguments: dict[str, Any],
     timeout: int = 60,
 ) -> str:
-    """Execute a tool on an MCP server via JSON-RPC tools/call."""
+    """Execute a tool on an MCP server via JSON-RPC tools/call.
+
+    Args:
+        service_id: MCP service identifier.
+        tool_name: Name of the tool to execute.
+        arguments: Tool arguments dict.
+        timeout: Request timeout in seconds.
+
+    Returns:
+        Tool result as plain text.
+
+    Raises:
+        ValueError: If service or URL not found.
+        RuntimeError: After all retries exhausted.
+    """
     service_data = get_service(service_id)
     if not service_data:
         raise ValueError(f"MCP service {service_id} not found")

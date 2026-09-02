@@ -16,23 +16,15 @@ from backend.db.repos import (
     NovelRepo, PlotNodeRepo, ChapterRepo, CharacterRepo, ForeshadowRepo,
 )
 from backend.agent import cancellation
-from backend.config import RUN_DIRECT
+from backend.config import RUN_DIRECT, LOG_DIR
+from backend.logging_config import setup_file_logging
 
 logger = logging.getLogger(__name__)
 
-if not RUN_DIRECT:
-    try:
-        _log_dir = Path(sys.executable).parent / "data"
-        _log_dir.mkdir(parents=True, exist_ok=True)
-        _fh = logging.FileHandler(_log_dir / "generation.log", encoding="utf-8")
-        _fh.setLevel(logging.DEBUG)
-        _fh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
-        logger.addHandler(_fh)
-        _uvicorn_logger = logging.getLogger("uvicorn")
-        _uvicorn_logger.addHandler(_fh)
-        logger.info("File logger initialised: %s", _log_dir / "generation.log")
-    except Exception as _e:
-        logger.warning("Failed to init file logger: %s", _e)
+# Ensure file logging is active (safe to call multiple times)
+setup_file_logging()
+
+
 
 router = APIRouter(prefix="/api", tags=["generation"])
 _sessions: dict[str, "AgentSession"] = {}

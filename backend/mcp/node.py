@@ -142,18 +142,44 @@ async def mcp_tool_node(state: State) -> dict[str, Any]:
             logger.info("Executing tool: %s/%s with args: %s", service_id, tool_name, arguments)
 
             if not service_id or not tool_name:
-                result_text = f"Error: unknown tool '{tc['function']['name']}'"
+                logger.error(
+                    "MCP tool call skipped: cannot parse tool name '%s'. "
+                    "This usually means the tool name format 'service_id__tool_name' is incorrect.",
+                    tc['function']['name'],
+                )
+                result_text = (
+                    "Error: unknown tool. The tool name format is invalid. "
+                    "Available tools are named as 'service_id__tool_name'. "
+                    "Please check the tool name and try again."
+                )
                 success = False
             else:
                 try:
                     result_text = await execute_tool(service_id, tool_name, arguments, timeout=60)
                     success = True
+                    logger.info(
+                        "Tool call succeeded: %s/%s (args keys=%s, result length=%d)",
+                        service_id, tool_name,
+                        list(arguments.keys()) if isinstance(arguments, dict) else "N/A",
+                        len(result_text),
+                    )
                 except Exception as exc:
-                    logger.warning("Tool %s/%s failed: %s", service_id, tool_name, exc)
-                    result_text = f"Error: {exc}"
+                    logger.warning(
+                        "Tool call failed: service=%s tool=%s args=%s error_type=%s error=%s",
+                        service_id, tool_name,
+                        arguments,
+                        type(exc).__name__,
+                        exc,
+                    )
+                    result_text = f"Error [{type(exc).__name__}]: {exc}"
                     success = False
 
             if len(result_text) > _MAX_TOOL_RESULT_CHARS:
+                logger.debug(
+                    "Truncating tool result for %s/%s from %d to %d chars",
+                    service_id, tool_name,
+                    len(result_text), _MAX_TOOL_RESULT_CHARS,
+                )
                 result_text = result_text[:_MAX_TOOL_RESULT_CHARS] + "\n... (truncated)"
 
             all_results.append({
