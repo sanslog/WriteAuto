@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse
 from backend.api.crud import router as crud_router
 from backend.api.common import router as common
 from backend.api.generation import router as generation_router
+from backend.api.one_sentence import router as one_sentence_router
 from backend.mcp.router import router as mcp_router
 from backend.config import RUN_DIRECT, load_llm_config
 
@@ -41,6 +42,7 @@ def create_app() -> FastAPI:
     app.include_router(common)
     app.include_router(generation_router)
     app.include_router(mcp_router)
+    app.include_router(one_sentence_router)
 
     @app.get("/api/health")
     async def health():

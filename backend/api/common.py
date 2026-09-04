@@ -3,6 +3,11 @@ from pydantic import BaseModel
 from fastapi import APIRouter
 from openai import AsyncOpenAI, APIStatusError
 
+import logging
+
+
+logger = logging.getLogger(__name__)
+
 
 router = APIRouter(prefix="/api", tags=["common"])
 
@@ -19,12 +24,13 @@ async def ping_OpenAI(req: PingRequest):
     """
     测试 LLM API 连接（通过 OpenAI SDK）
     """
-    if not req.api_key or req.baseurl or req.model_name:
+    if not (req.api_key and req.baseurl and req.model_name):
         return {
             "success": False,
             "status_code": 400,
             "error": "必要信息缺失",
         }
+    logger.info("Testing LLM connection: base_url=%s, model=%s", req.baseurl, req.model_name)
     try:
         client = AsyncOpenAI(
             api_key=req.api_key,
@@ -43,12 +49,14 @@ async def ping_OpenAI(req: PingRequest):
             "data": resp.model_dump(),
         }
     except APIStatusError as e:
+        logger.warning("LLM connection test failed: status=%s, error=%s", e.status_code, e.message)
         return {
             "success": False,
             "status_code": e.status_code,
             "error": e.message,
         }
     except Exception as e:
+        logger.exception("LLM connection test failed")
         return {
             "success": False,
             "status_code": 500,

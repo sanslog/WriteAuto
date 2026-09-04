@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from langgraph.checkpoint.memory import MemorySaver
@@ -101,6 +102,7 @@ async def run_react_agent(
     generation_id: str = "",
     max_iterations: int = DEFAULT_MAX_REACT_ITERATIONS,
     provider: LLMProvider | None = None,
+    progress_callback: Callable[[str, dict[str, Any]], Awaitable[None]] | None = None,
 ) -> dict[str, Any]:
     """Run a disposable graph instance and return the final state."""
 
@@ -108,13 +110,21 @@ async def run_react_agent(
     thread_id = session_id or str(uuid.uuid4())
     config = {"configurable": {"thread_id": thread_id}}
     logger.info("ReAct agent run started: session_id=%s", thread_id)
-    return await graph.ainvoke(
-        {
-            "session_id": thread_id,
-            "generation_id": generation_id,
-            "user_request": user_request,
-            "novel_id": novel_id,
-            "max_iterations": max_iterations,
-        },
-        config=config,
-    )
+    initial_state: ReactAgentState = {
+        "session_id": thread_id,
+        "generation_id": generation_id,
+        "user_request": user_request,
+        "novel_id": novel_id,
+        "max_iterations": max_iterations,
+    }
+
+    if progress_callback is None:
+        return await graph.ainvoke(initial_state, config=config)
+
+    async for event in graph.astream(initial_state, config, stream_mode="updates"):
+        for node_name, output in event.items():
+            if output:
+                await progress_callback(str(node_name), output)
+
+    final_snapshot = await graph.aget_state(config)
+    return dict(final_snapshot.values)
