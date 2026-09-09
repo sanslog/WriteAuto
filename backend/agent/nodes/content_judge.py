@@ -76,6 +76,7 @@ async def _save_approved_content(state: State):
             "model": "",
             "tokens_used": 0,
         })
+        await db.conn.commit()
     finally:
         await db.close()
 
@@ -88,6 +89,7 @@ async def _mark_as_discarded(state: State):
         saved_chapters = state.get("_saved_chapters", [])
         for ch in saved_chapters:
             await chapter_repo.update(ch["id"], {"status": "discarded"})
+        await db.conn.commit()
     finally:
         await db.close()
 

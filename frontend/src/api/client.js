@@ -9,7 +9,10 @@ client.interceptors.response.use(
   (res) => res.data,
   (err) => {
     const msg = err.response?.data?.detail || err.message || '请求失败'
-    return Promise.reject(new Error(msg))
+    const error = new Error(msg)
+    error.response = err.response
+    error.request = err.request
+    return Promise.reject(error)
   }
 )
 

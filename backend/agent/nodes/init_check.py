@@ -2,15 +2,12 @@ from backend.agent.state import State
 from backend.db.database import Database
 from backend.db.dependencies import db_session
 from backend.db.repos import NovelRepo, CharacterRepo, ForeshadowRepo
-from backend.config import DB_PATH
 from backend.services.cursor import get_cursor_info
 
 
 async def init_check_node(state: State) -> dict:
     novel_id = state["novel_id"]
 
-    db = Database(DB_PATH)
-    await db.init()
     async with db_session() as db:
         novel_repo = NovelRepo(db)
         char_repo = CharacterRepo(db)

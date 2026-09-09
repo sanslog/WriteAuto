@@ -4,6 +4,7 @@ const routes = [
   { path: '/', name: 'Home', component: () => import('../views/HomeView.vue') },
   { path: '/settings', name: 'Settings', component: () => import('../views/SettingsView.vue') },
   { path: '/mcp', name: 'MCP', component: () => import('../views/MCPView.vue') },
+  { path: '/one-sentence', name: 'OneSentence', component: () => import('../views/OneSentenceView.vue') },
   {
     path: '/novel/:id',
     component: () => import('../components/layout/NovelLayout.vue'),

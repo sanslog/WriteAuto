@@ -7,6 +7,7 @@ from langgraph.types import interrupt
 
 from backend.agent.state import State
 from backend.config import SPLIT_THRESHOLD_CHARS
+from backend.db.repos import CharacterRepo, ChapterRepo
 
 logger = logging.getLogger(__name__)
 
@@ -133,7 +134,7 @@ async def content_generation_node(state: State) -> dict:
     db = Database(DB_PATH)
     await db.init()
     try:
-        characters = await db.get_characters(novel_id)
+        characters = await CharacterRepo(db).get_by_novel(novel_id)
 
         # Extract character states
         from backend.llm.factory import create_llm_provider
@@ -145,10 +146,19 @@ async def content_generation_node(state: State) -> dict:
         else:
             llm = create_llm_provider()
             llm.set_gen_id(gen_id)
-            states = await extract_character_states(llm, generated_text, characters)
+            try:
+                states = await extract_character_states(llm, generated_text, characters)
+            except Exception:
+                logger.exception(
+                    "Character state extraction failed for generation %s; "
+                    "continuing without state snapshot",
+                    state.get("generation_id"),
+                )
+                states = []
         character_states_json = json.dumps(states, ensure_ascii=False)
 
         saved_chapters = state.get("_saved_chapters", [])
+        chapter_repo = ChapterRepo(db)
         is_modify = state.get("enter_loop", False) and len(saved_chapters) > 0
 
         if is_modify:
@@ -157,7 +167,7 @@ async def content_generation_node(state: State) -> dict:
                 word_count = _count_chinese(ch_data["content"])
                 if i < len(saved_chapters):
                     existing = saved_chapters[i]
-                    await db.update_chapter(existing["id"], {
+                    await chapter_repo.update(existing["id"], {
                         "title": ch_data["title"],
                         "content": ch_data["content"],
                         "word_count": word_count,
@@ -168,7 +178,7 @@ async def content_generation_node(state: State) -> dict:
                 else:
                     ch_id = str(uuid.uuid4())
                     ch_path = FileManager.chapter_path(novel_id, ch_id)
-                    await db.create_chapter({
+                    await chapter_repo.create({
                         "id": ch_id,
                         "novel_id": novel_id,
                         "title": ch_data["title"],
@@ -189,19 +199,19 @@ async def content_generation_node(state: State) -> dict:
             if len(chapters_data) < len(saved_chapters):
                 excess = saved_chapters[len(chapters_data):]
                 for ch in excess:
-                    await db.delete_chapter(ch["id"])
+                    await chapter_repo.delete(ch["id"])
                 saved_chapters[:] = saved_chapters[:len(chapters_data)]
         else:
             # First generation: create new chapters
-            existing_chapters = await db.get_chapters_by_status(novel_id, "draft")
+            existing_chapters = await chapter_repo.get_by_status(novel_id, "draft")
             for ch in existing_chapters:
-                await db.delete_chapter(ch["id"])
+                await chapter_repo.delete(ch["id"])
 
             for i, ch_data in enumerate(chapters_data):
                 ch_id = str(uuid.uuid4())
                 word_count = _count_chinese(ch_data["content"])
                 path = FileManager.chapter_path(novel_id, ch_id)
-                await db.create_chapter({
+                await chapter_repo.create({
                     "id": ch_id,
                     "novel_id": novel_id,
                     "title": ch_data["title"],
@@ -218,6 +228,7 @@ async def content_generation_node(state: State) -> dict:
                     "file_path": str(path),
                 })
 
+        await db.conn.commit()
         return {
             "generated_text": generated_text,
             "chapter_titles": chapter_titles,

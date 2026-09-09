@@ -1,4 +1,5 @@
 from backend.config import MAX_CONTEXT_CHARS, RECENT_CHAPTERS_COUNT
+from backend.db.repos import ChapterRepo
 
 
 async def build_context(
@@ -7,11 +8,11 @@ async def build_context(
     if chapter_ids:
         chapters = []
         for cid in chapter_ids:
-            ch = await db.get_chapter(cid)
+            ch = await ChapterRepo(db).get(cid)
             if ch and ch["status"] == "approved":
                 chapters.append(ch)
     else:
-        approved = await db.get_chapters_by_status(novel_id, "approved")
+        approved = await ChapterRepo(db).get_by_status(novel_id, "approved")
         chapters = approved[-RECENT_CHAPTERS_COUNT:]
 
     if not chapters:

@@ -36,6 +36,7 @@ class ReactAgentState(TypedDict, total=False):
 
     task_saved: bool
     saved_chapters: list[dict[str, Any]]
+    previous_chapter_tail: str
     result: dict[str, Any]
 
     cursor_position: int

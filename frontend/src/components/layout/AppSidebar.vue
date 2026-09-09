@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   ChevronRight,
   BookOpen,
+  Feather,
   Server,
   Settings,
 } from 'lucide-vue-next'
@@ -50,6 +51,16 @@ watch(() => route.path, (path) => {
       >
         <BookOpen :size="18" />
         <span v-show="!isCollapsed">作品列表</span>
+      </router-link>
+
+      <router-link
+        to="/one-sentence"
+        class="nav-item"
+        active-class="active"
+        :class="{ 'nav-icon-only': isCollapsed }"
+      >
+        <Feather :size="18" />
+        <span v-show="!isCollapsed">一句话小说</span>
       </router-link>
 
       <router-link
