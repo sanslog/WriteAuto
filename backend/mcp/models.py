@@ -1,4 +1,4 @@
-﻿"""Pydantic models for MCP service configuration (SSE transport).
+"""Pydantic models for MCP service configuration (Streamable HTTP transport).
 
 MCP services are defined as YAML files stored in data/mcp_configs/.
 Each file represents one MCP server with its tools.
@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
+
 from pydantic import BaseModel, Field
 
 
@@ -21,7 +22,7 @@ class MCPTool(BaseModel):
 
 
 class MCPServerConfig(BaseModel):
-    """SSE transport connection details."""
+    """Streamable HTTP MCP endpoint connection details."""
 
     url: str = ""
 

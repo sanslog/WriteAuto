@@ -1,169 +1,177 @@
-﻿# """Tests for MCP integration - models, service manager, and graph nodes."""
+"""Tests for the Streamable HTTP MCP host and service layer."""
 
-# from __future__ import annotations
+from __future__ import annotations
 
-# import json
-# import tempfile
-# from pathlib import Path
+from contextlib import asynccontextmanager
+from types import SimpleNamespace
 
-# import pytest
-# import yaml
+import pytest
+from mcp.types import TextContent
 
-# from backend.mcp.models import MCPService, MCPTool, MCPServerConfig
-# from backend.mcp.service import (
-#     list_services,
-#     get_service,
-#     save_service,
-#     delete_service,
-# )
+from backend.mcp import service
+from backend.mcp.host import tool_result_text
+from backend.mcp.models import MCPService, MCPServerConfig, MCPTool
 
 
-# class TestMCPServiceModels:
-#     """Test MCP model validation and serialization."""
-
-#     def test_mcp_tool_defaults(self):
-#         tool = MCPTool(name="test_tool")
-#         assert tool.name == "test_tool"
-#         assert tool.description == ""
-#         assert tool.input_schema == {}
-
-#     def test_mcp_tool_full(self):
-#         tool = MCPTool(
-#             name="search",
-#             description="Search the web",
-#             input_schema={"type": "object", "properties": {"query": {"type": "string"}}},
-#         )
-#         data = tool.model_dump()
-#         assert data["name"] == "search"
-
-#     def test_mcp_server_config(self):
-#         config = MCPServerConfig(url="https://mcp.example.com/mcp")
-#         assert config.url == "https://mcp.example.com/mcp"
-
-#     def test_mcp_service_create(self):
-#         service = MCPService(
-#             name="Test Service",
-#             server=MCPServerConfig(url="https://mcp.example.com/mcp"),
-#             tools=[MCPTool(name="tool1", description="First tool")],
-#         )
-#         assert len(service.tools) == 1
-
-#     def test_mcp_service_serialize_deserialize(self):
-#         service = MCPService(
-#             name="Serialize Test",
-#             server=MCPServerConfig(url="https://mcp.example.com/mcp"),
-#             tools=[MCPTool(name="greet")],
-#         )
-#         data = json.loads(service.model_dump_json())
-#         restored = MCPService(**data)
-#         assert restored.name == "Serialize Test"
+def _write_test_service(tmp_path, monkeypatch) -> str:
+    monkeypatch.setattr(service, "MCP_CONFIGS_DIR", tmp_path)
+    stored = service.save_service(
+        MCPService(
+            name="Test Service",
+            server=MCPServerConfig(url="https://mcp.example.test/mcp"),
+        )
+    )
+    return stored["id"]
 
 
-# @pytest.mark.asyncio
-# class TestMCPServicePersistence:
-#     """Test YAML-based persistence of MCP services."""
+@pytest.mark.asyncio
+async def test_discover_tools_uses_initialized_mcp_session(tmp_path, monkeypatch):
+    service_id = _write_test_service(tmp_path, monkeypatch)
+    calls = []
 
-#     @pytest.fixture(autouse=True)
-#     def _patch_config_dir(self, monkeypatch):
-#         self.tmp_dir = Path(tempfile.mkdtemp())
-#         monkeypatch.setattr("backend.mcp.service.MCP_CONFIGS_DIR", self.tmp_dir)
-#         yield
-#         import shutil
-#         shutil.rmtree(self.tmp_dir, ignore_errors=True)
+    async def list_tools():
+        calls.append("list_tools")
+        return SimpleNamespace(
+            tools=[
+                SimpleNamespace(
+                    name="search",
+                    description="Search documents",
+                    input_schema={"type": "object", "properties": {}},
+                )
+            ]
+        )
 
-#     async def test_save_and_list_service(self):
-#         service = MCPService(
-#             name="Save Test",
-#             server=MCPServerConfig(url="https://mcp.example.com/mcp"),
-#             tools=[MCPTool(name="ping")],
-#         )
-#         saved = save_service(service)
-#         assert saved["name"] == "Save Test"
-#         services = list_services()
-#         assert len(services) == 1
+    fake_session = SimpleNamespace(list_tools=list_tools)
 
-#     async def test_get_service_by_id(self):
-#         service = MCPService(name="Get Test", server=MCPServerConfig(url="https://mcp.example.com/mcp"))
-#         saved = save_service(service)
-#         assert get_service(saved["id"]) is not None
+    @asynccontextmanager
+    async def fake_connect(url, timeout=30):
+        calls.append(("connect", url, timeout))
+        yield fake_session
 
-#     async def test_delete_service(self):
-#         service = MCPService(name="Delete Test", server=MCPServerConfig(url="https://mcp.example.com/mcp"))
-#         saved = save_service(service)
-#         assert delete_service(saved["id"]) is True
-#         assert delete_service(saved["id"]) is False
+    monkeypatch.setattr(service, "connect_mcp_session", fake_connect)
 
-#     async def test_list_empty_dir(self):
-#         assert list_services() == []
+    tools = await service.discover_tools(service_id)
 
-
-# @pytest.mark.asyncio
-# class TestMCPToolNode:
-#     """Test the single MCP tool node (LLM decision + execution)."""
-
-#     async def test_skips_without_text(self, monkeypatch):
-#         from backend.mcp.node import mcp_tool_node
-
-#         monkeypatch.setattr("backend.mcp.node.list_services", lambda: [])
-#         result = await mcp_tool_node({"generated_text": "", "_cancelled": False, "chapter_titles": [], "context": ""})
-#         assert result == {"mcp_results": [], "mcp_context": ""}
-
-#     async def test_skips_when_cancelled(self, monkeypatch):
-#         from backend.mcp.node import mcp_tool_node
-
-#         monkeypatch.setattr("backend.mcp.node.list_services", lambda: [])
-#         result = await mcp_tool_node({"generated_text": "text", "_cancelled": True})
-#         assert result == {"mcp_results": [], "mcp_context": ""}
-
-#     async def test_skips_with_no_services(self, monkeypatch):
-#         from backend.mcp.node import mcp_tool_node
-
-#         monkeypatch.setattr("backend.mcp.node.list_services", lambda: [])
-#         result = await mcp_tool_node({"generated_text": "Hello", "_cancelled": False, "chapter_titles": [], "context": ""})
-#         assert result == {"mcp_results": [], "mcp_context": ""}
+    assert [(tool.name, tool.description) for tool in tools] == [
+        ("search", "Search documents")
+    ]
+    assert tools[0].input_schema == {"type": "object", "properties": {}}
+    assert calls == [
+        ("connect", "https://mcp.example.test/mcp", 30),
+        "list_tools",
+    ]
 
 
-# class TestMCPGraphIntegration:
-#     """Test that the graph correctly includes the single MCP tool node."""
+@pytest.mark.asyncio
+async def test_execute_tool_sends_arguments_and_extracts_text(tmp_path, monkeypatch):
+    service_id = _write_test_service(tmp_path, monkeypatch)
+    calls = []
 
-#     def test_graph_has_mcp_tool_node(self):
-#         from backend.agent.graph import continue_writing_graph
+    async def call_tool(name, arguments):
+        calls.append(("call_tool", name, arguments))
+        return SimpleNamespace(
+            content=[TextContent(type="text", text="hello world")],
+            is_error=False,
+        )
 
-#         nodes = list(continue_writing_graph.nodes.keys())
-#         assert "mcp_tool" in nodes, "mcp_tool node missing from graph"
-#         assert "mcp_decision" not in nodes, "mcp_decision should not exist"
-#         assert "mcp_execution" not in nodes, "mcp_execution should not exist"
-#         assert "content_generation" in nodes
-#         assert "content_judge" in nodes
+    fake_session = SimpleNamespace(call_tool=call_tool)
 
-#     def test_node_ordering(self):
-#         from backend.agent.graph import continue_writing_graph
+    @asynccontextmanager
+    async def fake_connect(url, timeout=30):
+        calls.append(("connect", url, timeout))
+        yield fake_session
 
-#         graph = continue_writing_graph.get_graph(xray=False)
-#         node_ids = [str(n) for n in graph.nodes]
-#         gen_idx = node_ids.index("content_generation")
-#         mcp_idx = node_ids.index("mcp_tool")
-#         jdg_idx = node_ids.index("content_judge")
-#         assert gen_idx < mcp_idx < jdg_idx, "expected generation → mcp_tool → judgment"
+    monkeypatch.setattr(service, "connect_mcp_session", fake_connect)
 
+    result = await service.execute_tool(service_id, "search", {"query": "novel"})
 
-# class TestMCPYamlSerialization:
-#     """Test YAML round-trip serialization of MCP services."""
-
-#     def test_yaml_roundtrip(self):
-#         service = MCPService(
-#             name="YAML Test",
-#             description="测试YAML",
-#             server=MCPServerConfig(url="https://mcp.example.com/mcp"),
-#             tools=[MCPTool(name="search"), MCPTool(name="analyze")],
-#         )
-#         data = service.model_dump()
-#         data.pop("id", None)
-#         yaml_str = yaml.dump(data, allow_unicode=True, default_flow_style=False, sort_keys=False)
-#         restored = MCPService(**yaml.safe_load(yaml_str))
-#         assert restored.name == "YAML Test"
-#         assert len(restored.tools) == 2
+    assert result == "hello world"
+    assert calls == [
+        ("connect", "https://mcp.example.test/mcp", 60),
+        ("call_tool", "search", {"query": "novel"}),
+    ]
 
 
+@pytest.mark.asyncio
+async def test_execute_tool_raises_for_mcp_error_result(tmp_path, monkeypatch):
+    service_id = _write_test_service(tmp_path, monkeypatch)
+
+    async def call_tool(name, arguments):
+        return SimpleNamespace(
+            content=[TextContent(type="text", text="not found")],
+            is_error=True,
+        )
+
+    fake_session = SimpleNamespace(call_tool=call_tool)
+
+    @asynccontextmanager
+    async def fake_connect(url, timeout=30):
+        yield fake_session
+
+    monkeypatch.setattr(service, "connect_mcp_session", fake_connect)
+
+    with pytest.raises(RuntimeError, match="not found"):
+        await service.execute_tool(service_id, "search", {})
 
 
+@pytest.mark.asyncio
+async def test_transient_transport_error_reconnects(monkeypatch):
+    monkeypatch.setattr(service, "_BASE_DELAY_SEC", 0)
+    monkeypatch.setattr(service, "_MAX_DELAY_SEC", 0)
+    attempts = []
+
+    @asynccontextmanager
+    async def fake_connect(url, timeout=30):
+        attempts.append(url)
+        if len(attempts) == 1:
+            raise TimeoutError("connection timed out")
+        yield SimpleNamespace()
+
+    async def action(session):
+        return "ok"
+
+    monkeypatch.setattr(service, "connect_mcp_session", fake_connect)
+
+    result = await service._run_with_reconnect(
+        "https://mcp.example.test/mcp", action, "tools/list"
+    )
+
+    assert result == "ok"
+    assert len(attempts) == 2
+
+
+@pytest.mark.asyncio
+async def test_non_transport_error_is_not_retried(monkeypatch):
+    attempts = []
+
+    @asynccontextmanager
+    async def fake_connect(url, timeout=30):
+        attempts.append(url)
+        yield SimpleNamespace()
+
+    async def action(session):
+        raise ValueError("invalid arguments")
+
+    monkeypatch.setattr(service, "connect_mcp_session", fake_connect)
+
+    with pytest.raises(ValueError, match="invalid arguments"):
+        await service._run_with_reconnect(
+            "https://mcp.example.test/mcp", action, "tools/call"
+        )
+
+    assert len(attempts) == 1
+
+
+def test_tool_result_text_formats_text_and_raises_on_error():
+    success = SimpleNamespace(
+        content=[TextContent(type="text", text="a"), TextContent(type="text", text="b")],
+        is_error=False,
+    )
+    failure = SimpleNamespace(
+        content=[TextContent(type="text", text="failed")],
+        is_error=True,
+    )
+
+    assert tool_result_text(success) == "a\nb"
+    with pytest.raises(RuntimeError, match="failed"):
+        tool_result_text(failure)
