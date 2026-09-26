@@ -1,4 +1,4 @@
-# WriterAuto
+# WriterAuto 小说写作agent
 
 ### 项目介绍
 
