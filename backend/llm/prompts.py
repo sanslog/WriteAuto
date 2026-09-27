@@ -8,7 +8,7 @@
     main_character_design: str,
     foreshadow: str,
     context: str,
-    user_input_text: str = "",
+    modification_opinion: str = "",
     enter_loop: bool = False,
     previous_generated_text: str = "",
     mcp_context: str = "",
@@ -52,8 +52,8 @@
     if mcp_context:
         user_parts.append(f"【外部参考资料】\n以下是通过工具查询到的外部信息（如地理、历史、文化等），可供参考：\n{mcp_context}")
 
-    if enter_loop and user_input_text and previous_generated_text:
-        user_parts.append(f"【修改意见】#请根据以下意见重新修改上次生成内容:\n{user_input_text}")
+    if enter_loop and modification_opinion and previous_generated_text:
+        user_parts.append(f"【修改意见】#请根据以下意见重新修改上次生成内容:\n{modification_opinion}")
         user_parts.append(f"【上次生成的内容】#需要修改的文本:\n{('（前文省略）......'+previous_generated_text[:4000]) if len(previous_generated_text)>4000 else previous_generated_text}")
 
     user_parts.append(

@@ -91,7 +91,7 @@ async def content_generation_node(state: State) -> dict:
         main_character_design=state["main_character_design"],
         foreshadow=state["foreshadow"],
         context=state["context"],
-        user_input_text=state.get("user_input_text", ""),
+        modification_opinion=state.get("modification_opinion", ""),
         enter_loop=state.get("enter_loop", False),
         previous_generated_text=state.get("generated_text", ""),
         mcp_context=state.get("mcp_context", ""),
@@ -234,6 +234,8 @@ async def content_generation_node(state: State) -> dict:
             "chapter_titles": chapter_titles,
             "character_states_json": character_states_json,
             "_saved_chapters": saved_chapters,
+            # The opinion has been consumed by this regeneration round.
+            "modification_opinion": "",
         }
     finally:
         await db.close()

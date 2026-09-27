@@ -35,6 +35,13 @@ def _route_after_content_judge(state: State) -> str:
     return "modify_loop"
 
 
+def _route_after_modify_loop(state: State) -> str:
+    """Only regenerate when modify_loop accepted a user modification opinion."""
+    if state.get("should_end") or not state.get("enter_loop"):
+        return END
+    return "mcp_tool"
+
+
 checkpointer = MemorySaver()
 
 
@@ -71,8 +78,13 @@ def build_graph() -> CompiledStateGraph:
         {"modify_loop": "modify_loop", END: END},
     )
 
-    # On modify loop: re-run MCP to re-evaluate context with new user input
-    builder.add_edge("modify_loop", "mcp_tool")
+    # On modify loop: re-run MCP to re-evaluate context with the new opinion,
+    # unless modify_loop found no actionable modification opinion.
+    builder.add_conditional_edges(
+        "modify_loop",
+        _route_after_modify_loop,
+        {"mcp_tool": "mcp_tool", END: END},
+    )
 
     logger.info(
         "Generation graph built with MCP tool node BEFORE content_generation"

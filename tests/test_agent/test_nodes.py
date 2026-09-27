@@ -25,10 +25,9 @@ def make_state(**overrides):
         "enter_loop": False,
         "should_end": False,
         "modification_count": 0,
-        "user_input_text": "",
+        "modification_opinion": "",
         "unlawful": False,
         "unlaw_reason": "",
-        "messages": [],
         "novel_id": "test-novel-1",
         "generation_id": "test-gen-1",
         "_saved_chapters": [],
@@ -261,9 +260,55 @@ class TestGraphStructure:
 
 
 class TestModifyLoop:
-    def test_modify_loop_updates_state(self):
+    def test_modify_loop_promotes_opinion_and_increments_round(self):
         from backend.agent.nodes.modify_loop import modify_loop_node
-        state = make_state(modification_count=2, user_input_text="改一下")
+        state = make_state(modification_count=2, modification_opinion="把主角写得更冷静")
         result = modify_loop_node(state)
+
         assert result["enter_loop"] is True
-        assert len(result["messages"]) == 1
+        assert result["should_end"] is False
+        assert result["modification_count"] == 3
+        assert result["modification_opinion"] == "把主角写得更冷静"
+        # No message history is accumulated anywhere in the state.
+        assert "messages" not in result
+
+    def test_modify_loop_strips_opinion_whitespace(self):
+        from backend.agent.nodes.modify_loop import modify_loop_node
+        state = make_state(modification_count=0, modification_opinion="  精简对话  ")
+        result = modify_loop_node(state)
+
+        assert result["modification_opinion"] == "精简对话"
+        assert result["modification_count"] == 1
+
+    def test_modify_loop_ends_without_opinion(self):
+        from backend.agent.nodes.modify_loop import modify_loop_node
+        state = make_state(modification_count=1, modification_opinion="   ")
+        result = modify_loop_node(state)
+
+        assert result["enter_loop"] is False
+        assert result["should_end"] is True
+        assert result["modification_opinion"] == ""
+        assert "modification_count" not in result
+
+    def test_modify_loop_ends_when_budget_exhausted(self):
+        from backend.agent.nodes.modify_loop import modify_loop_node
+        from backend.config import MAX_MODIFICATION_COUNT
+        state = make_state(
+            modification_count=MAX_MODIFICATION_COUNT,
+            modification_opinion="再来一轮",
+        )
+        result = modify_loop_node(state)
+
+        assert result["enter_loop"] is False
+        assert result["should_end"] is True
+
+
+class TestStateSchema:
+    def test_state_declares_no_history_channel(self):
+        """The workflow state must not carry conversation history."""
+        from backend.agent.state import State
+
+        annotations = State.__annotations__
+        assert "messages" not in annotations
+        assert "user_input_text" not in annotations
+        assert annotations["modification_opinion"] is str

@@ -4,7 +4,7 @@ import logging
 from langgraph.types import interrupt
 
 from backend.agent.state import State
-from backend.config import MAX_MODIFICATION_COUNT, DB_PATH
+from backend.config import DB_PATH
 from backend.db.database import Database
 from backend.db.repos import (
     NovelRepo, PlotNodeRepo, ChapterRepo, CharacterRepo, ForeshadowRepo, SettingsRepo,
@@ -96,7 +96,7 @@ async def _mark_as_discarded(state: State):
 
 async def content_judge_node(state: State) -> dict:
     if state.get("_cancelled"):
-        return {"should_end": True, "enter_loop": False}
+        return {"should_end": True, "enter_loop": False, "modification_opinion": ""}
 
     judgment = interrupt({
         "type": "judgment",
@@ -109,21 +109,28 @@ async def content_judge_node(state: State) -> dict:
     })
 
     action = judgment.get("action", "cancel")
-    mod_count = state.get("modification_count", 0)
+    opinion = (judgment.get("text") or "").strip()
+    logger.info(
+        "content_judge: action=%s generation=%s modification_count=%d opinion_length=%d",
+        action,
+        state.get("generation_id"),
+        state.get("modification_count", 0),
+        len(opinion),
+    )
 
     if action == "approve":
         await _save_approved_content(state)
-        return {"should_end": True, "enter_loop": False}
-    elif action == "modify" and mod_count < MAX_MODIFICATION_COUNT:
+        return {"should_end": True, "enter_loop": False, "modification_opinion": ""}
+    elif action == "modify":
+        # The opinion is promoted to a dedicated state field; modify_loop
+        # decides whether it is actionable and owns the round counter.
         return {
             "should_end": False,
             "enter_loop": True,
-            "modification_count": mod_count + 1,
-            "user_input_text": judgment.get("text", ""),
+            "modification_opinion": opinion,
         }
     else:
-        if action != "approve":
-            await _mark_as_discarded(state)
-        return {"should_end": True, "enter_loop": False}
+        await _mark_as_discarded(state)
+        return {"should_end": True, "enter_loop": False, "modification_opinion": ""}
 
 

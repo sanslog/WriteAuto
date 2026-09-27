@@ -106,10 +106,9 @@ async def test_writer_graph_plans_with_context_and_persists_approval(temp_db, mo
         "enter_loop": False,
         "should_end": False,
         "modification_count": 0,
-        "user_input_text": "",
+        "modification_opinion": "",
         "unlawful": False,
         "unlaw_reason": "",
-        "messages": [],
         "novel_id": novel_id,
         "generation_id": "writer-eval-generation",
         "_saved_chapters": [],
@@ -180,7 +179,6 @@ async def test_writer_graph_survives_llm_state_extraction_failure(temp_db, monke
         {
             "novel_id": novel_id,
             "generation_id": "writer-eval-llm-failure-generation",
-            "messages": [],
             "chapter_ids": [],
             "foreshadow_ids": [],
             "_saved_chapters": [],
@@ -266,4 +264,101 @@ async def test_mcp_tool_node_plans_tools_and_recovers_from_errors(monkeypatch):
     report.check("marks_remote_failure", result["mcp_results"][1]["success"] is False)
     report.check("keeps_successful_result", result["mcp_results"][2]["success"] is True)
     report.check("includes_ok_and_failed_context", "[OK]" in result["mcp_context"] and "[FAILED]" in result["mcp_context"])
+    assert_report(report)
+
+
+async def _resume_until_generation_request(graph, config, resume_value):
+    """Resume the graph, answering MCP planning rounds, until text generation."""
+    result = await graph.ainvoke(Command(resume=resume_value), config=config)
+    interrupts = result.get("__interrupt__") or []
+    while interrupts and interrupts[0].value.get("type") == "mcp_tool_call":
+        result = await graph.ainvoke(
+            Command(resume={"result_json": '{"type": "text", "content": ""}'}),
+            config=config,
+        )
+        interrupts = result.get("__interrupt__") or []
+    return result
+
+
+@pytest.mark.asyncio
+async def test_writer_graph_modify_round_promotes_opinion_without_history(
+    temp_db, monkeypatch
+):
+    """A modify round carries the opinion in state and accumulates no history."""
+    db = Database(temp_db)
+    await db.init()
+    try:
+        novel = await NovelRepo(db).create(
+            {
+                "title": "修改回路",
+                "base_prompt": "少年与青铜铃",
+                "style_of_writing": "克制的第三人称",
+                "world_outlook": "残稿持有记忆",
+            }
+        )
+        novel_id = novel["id"]
+        await PlotNodeRepo(db).create(
+            {
+                "novel_id": novel_id,
+                "title": "旧宅闻铃",
+                "summary": "林晚第一次听见青铜铃",
+                "detailed_outline": "林晚在旧宅深处听见残稿开口。",
+            }
+        )
+        await CharacterRepo(db).create(
+            {
+                "novel_id": novel_id,
+                "name": "林晚",
+                "description": "沉默寡言的旧宅继承人",
+                "role": "主角",
+            }
+        )
+        await db.conn.commit()
+    finally:
+        await db.close()
+
+    monkeypatch.setattr("backend.llm.factory.create_llm_provider", lambda: StaticLLM())
+    graph = build_graph()
+    config = {"configurable": {"thread_id": "writer-eval-modify-round"}}
+
+    await graph.ainvoke(
+        {
+            "novel_id": novel_id,
+            "generation_id": "writer-eval-modify-generation",
+            "chapter_ids": [],
+            "foreshadow_ids": [],
+            "_saved_chapters": [],
+            "_cancelled": False,
+        },
+        config=config,
+    )
+    judgment_state = await graph.ainvoke(
+        Command(resume={"generated_text": GENERATED_TEXT}), config=config
+    )
+    assert judgment_state["__interrupt__"][0].value["type"] == "judgment"
+
+    opinion = "把结尾改得更有冲击力"
+    result = await _resume_until_generation_request(
+        graph, config, {"action": "modify", "text": opinion}
+    )
+    interrupt = result["__interrupt__"][0].value
+    checkpointed = graph.get_state(config).values
+
+    report = EvalReport("backend.agent.modify_loop")
+    report.check("regenerates_after_modify", interrupt["type"] == "generation_request")
+    report.check("opinion_injected_into_prompt", opinion in interrupt["user"])
+    report.check("round_counted", result.get("modification_count") == 1)
+    report.check("opinion_kept_in_state", result.get("modification_opinion") == opinion)
+    report.check("state_has_no_history_channel", "messages" not in checkpointed)
+    report.check("state_has_no_legacy_field", "user_input_text" not in checkpointed)
+
+    # Finish this round, then submit a blank "modify" request: the loop must
+    # end instead of regenerating with nothing to act on.
+    await graph.ainvoke(Command(resume={"generated_text": GENERATED_TEXT}), config=config)
+    ended = await graph.ainvoke(
+        Command(resume={"action": "modify", "text": "   "}), config=config
+    )
+    report.check("blank_opinion_ends_run", ended.get("should_end") is True)
+    report.check("blank_opinion_stops_looping", ended.get("enter_loop") is False)
+    report.check("blank_opinion_keeps_round_count", ended.get("modification_count") == 1)
     assert_report(report)

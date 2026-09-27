@@ -62,3 +62,7 @@
 ### 核心LangGraph工作流程
 
 ![图](./resources/my_graph.png)
+
+### 第二阶段：
+
+基于ReAct模式的多工具、多skill调用的solo模式，同时将后端工具注册为可用工具。

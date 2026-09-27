@@ -17,8 +17,6 @@ from backend.react_agent.nodes.context_window import apply_chat_message_window
 from backend.react_agent.prompts import (
     build_react_progress_hint,
     build_react_state_digest,
-    build_react_system_prompt,
-    build_react_user_prompt,
 )
 from backend.react_agent.state import DEFAULT_MAX_REACT_ITERATIONS, ReactAgentState
 from backend.react_agent.tools.registry import build_openai_tools
@@ -106,7 +104,7 @@ def make_agent_node(provider: LLMProvider):
                 messages=messages,
                 tools=tools,
                 temperature=0.4,
-                max_tokens=8192,
+                max_tokens=50000,
             )
         except asyncio.CancelledError:
             logger.info("ReAct agent LLM call cancelled at round %d", iteration)

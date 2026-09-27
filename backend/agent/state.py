@@ -1,5 +1,4 @@
-﻿from typing import Annotated, TypedDict
-from langgraph.graph.message import add_messages
+from typing import TypedDict
 
 
 class State(TypedDict):
@@ -37,14 +36,11 @@ class State(TypedDict):
     enter_loop: bool
     should_end: bool
     modification_count: int
-    user_input_text: str
+    modification_opinion: str
 
     # === Legality ===
     unlawful: bool
     unlaw_reason: str
-
-    # === Messages ===
-    messages: Annotated[list, add_messages]
 
     # === Metadata ===
     novel_id: str
