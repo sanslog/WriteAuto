@@ -12,20 +12,25 @@
       <p v-if="novel.base_prompt" class="novel-desc">
         {{ novel.base_prompt.slice(0, 120) }}{{ novel.base_prompt.length > 120 ? '...' : '' }}
       </p>
-      <button class="edit-btn" @click.stop="emit('edit', novel)" title="编辑">
-        <Pencil :size="14" color="#ef4444" />
-      </button>
+      <div class="card-actions">
+        <button class="action-btn" @click.stop="emit('edit', novel)" title="编辑">
+          <Pencil :size="14" color="#ef4444" />
+        </button>
+        <button class="action-btn" @click.stop="emit('delete', novel)" title="删除">
+          <Trash2 :size="14" color="#ef4444" />
+        </button>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { Pencil } from 'lucide-vue-next';
+import { Pencil, Trash2 } from 'lucide-vue-next';
 
 const props = defineProps({
   novel: { type: Object, required: true },
 })
-const emit = defineEmits(['edit'])
+const emit = defineEmits(['edit', 'delete'])
 </script>
 
 <style scoped>
@@ -54,10 +59,16 @@ const emit = defineEmits(['edit'])
   position: relative;
 }
 
-.edit-btn {
+.card-actions {
   position: absolute;
   bottom: var(--space-md);
   right: var(--space-md);
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.action-btn {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -74,11 +85,11 @@ const emit = defineEmits(['edit'])
   padding: 0;
 }
 
-.novel-card:hover .edit-btn {
+.novel-card:hover .action-btn {
   opacity: 1;
 }
 
-.edit-btn:hover {
+.action-btn:hover {
   background: #fef2f2;
   border-color: #f5c6cb;
 }

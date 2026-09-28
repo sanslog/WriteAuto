@@ -5,11 +5,14 @@ import { useNovelStore } from '../stores/novel'
 import { Plus, BookOpen, Sparkles } from 'lucide-vue-next'
 import NovelCard from '../components/novel/NovelCard.vue'
 import NovelCreateDialog from '../components/novel/NovelCreateDialog.vue'
+import ConfirmDialog from '../components/common/ConfirmDialog.vue'
 
 const router = useRouter()
 const novelStore = useNovelStore()
 const showCreate = ref(false)
 const editingNovel = ref(null)
+const deletingNovel = ref(null)
+const deleting = ref(false)
 
 onMounted(() => {
   novelStore.fetchNovels()
@@ -33,6 +36,21 @@ function openNovel(id) {
 
 function handleEditClick(novel) {
   editingNovel.value = novel
+}
+
+function handleDelete(novel) {
+  deletingNovel.value = novel
+}
+
+async function confirmDelete() {
+  if (!deletingNovel.value) return
+  deleting.value = true
+  try {
+    await novelStore.deleteNovel(deletingNovel.value.id)
+    deletingNovel.value = null
+  } finally {
+    deleting.value = false
+  }
 }
 </script>
 
@@ -72,7 +90,7 @@ function handleEditClick(novel) {
         :style="{ animationDelay: (i * 0.08) + 's' }"
         class="novel-card-wrapper"
       >
-        <NovelCard :novel="novel" @edit="handleEditClick" />
+        <NovelCard :novel="novel" @edit="handleEditClick" @delete="handleDelete" />
       </div>
     </div>
 
@@ -82,6 +100,18 @@ function handleEditClick(novel) {
       @close="showCreate = false; editingNovel = null"
       @created="handleCreate"
       @saved="handleEditSave"
+    />
+
+    <ConfirmDialog
+      :show="!!deletingNovel"
+      danger
+      title="删除作品"
+      :message="`确定要删除作品「${deletingNovel?.title || '未命名作品'}」吗？`"
+      description="该作品及其所有章节内容将被永久删除，此操作不可撤销。"
+      confirm-text="删除"
+      :loading="deleting"
+      @confirm="confirmDelete"
+      @close="deletingNovel = null"
     />
   </div>
 </template>

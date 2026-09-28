@@ -41,6 +41,7 @@ _COLLECT_PACKAGES = [
     'charset_normalizer',
     # multipart 表单解析
     'multipart',
+    'yaml',
     # 类型工具
     'typing_extensions',
 ]

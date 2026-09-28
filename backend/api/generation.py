@@ -2,9 +2,7 @@
 
 import json as _json_mod
 import logging
-import sys
 import uuid
-from pathlib import Path
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
@@ -16,7 +14,6 @@ from backend.db.repos import (
     NovelRepo, PlotNodeRepo, ChapterRepo, CharacterRepo, ForeshadowRepo,
 )
 from backend.agent import cancellation
-from backend.config import RUN_DIRECT, LOG_DIR
 from backend.logging_config import setup_file_logging
 
 logger = logging.getLogger(__name__)
