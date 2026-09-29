@@ -63,6 +63,12 @@
 
 ![图](./resources/my_graph.png)
 
-### 第二阶段：
+### 一句话小说模块快速介绍
 
-基于ReAct模式的多工具、多skill调用的solo模式，同时将后端工具注册为可用工具。
+![](./resources/one_st.png)
+
+如上图，这是将小说创作的所有部分完全交给agent的一个ReAct循环，也是“一句话写小说”功能。
+
+### ReAct loop核心工作流程
+
+![](./resources/my_graph2.png)
